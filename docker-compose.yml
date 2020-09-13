@@ -1,6 +1,28 @@
-version: '3.1'
+version: '2.4'
 
 services:
+  publisher:
+    build:
+      context: .
+      args:
+        EXECUTABLE: publisher
+    environment:
+      RABBITMQ_URL: amqp://test:test123@rabbitmq:5672/
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+
+  worker:
+    build:
+      context: .
+      args:
+        EXECUTABLE: worker
+    environment:
+      RABBITMQ_URL: amqp://test:test123@rabbitmq:5672/
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+
   rabbitmq:
     image: rabbitmq:3.8.2-management
     environment:
@@ -9,3 +31,8 @@ services:
     ports:
       - 127.0.0.1:5672:5672
       - 127.0.0.1:15672:15672
+    healthcheck:
+      test:
+        - CMD
+        - rabbitmqctl
+        - status

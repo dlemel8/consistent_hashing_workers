@@ -3,8 +3,10 @@ package consistenthashing
 import (
 	"context"
 	"encoding/json"
+	"github.com/cenkalti/backoff/v4"
 	"github.com/streadway/amqp"
 	"log"
+	"time"
 )
 
 type Exchange struct {
@@ -24,7 +26,19 @@ type RabbitMqConnection struct {
 }
 
 func CreateRabbitMqConnection(url string) (*RabbitMqConnection, error) {
-	connection, err := amqp.Dial(url)
+	var connection *amqp.Connection
+
+	err := backoff.RetryNotify(
+		func() error {
+			var err error
+			connection, err = amqp.Dial(url)
+			return err
+		}, backoff.NewExponentialBackOff(),
+		func(err error, duration time.Duration) {
+			log.Printf("failed to connect to %s: %v. waiting %s", url, err, duration)
+		},
+	)
+
 	if err != nil {
 		return nil, err
 	}

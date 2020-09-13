@@ -3,12 +3,15 @@ package main
 import (
 	"consistenthashing"
 	"context"
+	"github.com/spf13/viper"
 	"log"
 )
 
 func main() {
-	// TODO - extract url to config
-	rabbitmqConnection, err := consistenthashing.CreateRabbitMqConnection("amqp://test:test123@localhost:5672/")
+	consistenthashing.SetupConfig()
+	rabbitMqUrl := viper.GetString("rabbitmq_url")
+
+	rabbitmqConnection, err := consistenthashing.CreateRabbitMqConnection(rabbitMqUrl)
 	exitIfError(err, "failed to create RabbitMQ connection")
 	defer rabbitmqConnection.Close()
 
