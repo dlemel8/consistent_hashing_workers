@@ -7,6 +7,8 @@ services:
       args:
         EXECUTABLE: publisher
     environment:
+      NUMBER_OF_JOB_IDS: 10
+      NUMBER_OF_JOBS: 100
       RABBITMQ_URL: amqp://test:test123@rabbitmq:5672/
     depends_on:
       rabbitmq:
@@ -32,7 +34,4 @@ services:
       - 127.0.0.1:5672:5672
       - 127.0.0.1:15672:15672
     healthcheck:
-      test:
-        - CMD
-        - rabbitmqctl
-        - status
+      test: rabbitmqctl status

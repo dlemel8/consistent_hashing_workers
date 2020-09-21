@@ -4,8 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"github.com/cenkalti/backoff/v4"
+	log "github.com/sirupsen/logrus"
 	"github.com/streadway/amqp"
-	"log"
 	"time"
 )
 
@@ -35,7 +35,11 @@ func CreateRabbitMqConnection(url string) (*RabbitMqConnection, error) {
 			return err
 		}, backoff.NewExponentialBackOff(),
 		func(err error, duration time.Duration) {
-			log.Printf("failed to connect to %s: %v. waiting %s", url, err, duration)
+			log.WithFields(log.Fields{
+				log.ErrorKey: err,
+				"url":        url,
+				"duration":   duration},
+			).Error("failed to connect to RabbitMQ, waiting")
 		},
 	)
 
@@ -68,7 +72,7 @@ func CreateRabbitMqPublisher(connection *RabbitMqConnection, exchange Exchange) 
 	if err := channel.ExchangeDeclare(
 		exchange.Name,
 		exchange.Type,
-		false,
+		true,
 		false,
 		false,
 		false,
@@ -122,7 +126,7 @@ func CreateRabbitMqConsumer(
 	if err := channel.ExchangeDeclare(
 		exchange.Name,
 		exchange.Type,
-		false,
+		true,
 		false,
 		false,
 		false,
@@ -133,9 +137,9 @@ func CreateRabbitMqConsumer(
 
 	if _, err := channel.QueueDeclare(
 		queueName,
-		false,
-		false,
 		true,
+		false,
+		false,
 		false,
 		nil,
 	); err != nil {
@@ -159,7 +163,7 @@ func (c *RabbitMqConsumer) Close() {
 	c.channel.Close()
 }
 
-func (c *RabbitMqConsumer) Consume(ctx context.Context, message interface{}) (<-chan interface{}, error) {
+func (c *RabbitMqConsumer) Consume(ctx context.Context, messagePtr interface{}, onNewMessageCallback func()) error {
 	deliveries, err := c.channel.Consume(
 		c.queueName,
 		"",
@@ -171,24 +175,25 @@ func (c *RabbitMqConsumer) Consume(ctx context.Context, message interface{}) (<-
 	)
 
 	if err != nil {
-		return nil, err
+		return err
 	}
 
-	res := make(chan interface{})
-	go handleDeliveries(ctx, message, deliveries, res)
-
-	return res, nil
+	handleDeliveries(ctx, messagePtr, onNewMessageCallback, deliveries)
+	return nil
 }
 
-func handleDeliveries(ctx context.Context, message interface{}, in <-chan amqp.Delivery, out chan<- interface{}) {
+func handleDeliveries(ctx context.Context, message interface{}, onNewMessageCallback func(), in <-chan amqp.Delivery) {
 	for {
 		select {
 		case delivery := <-in:
-			if err := json.Unmarshal(delivery.Body, &message); err != nil {
-				log.Printf("failed to handle message %s", delivery.Body)
+			if err := json.Unmarshal(delivery.Body, message); err != nil {
+				log.WithFields(log.Fields{
+					log.ErrorKey: err,
+					"message":    delivery.Body,
+				}).Error("failed to handle message")
 				continue
 			}
-			out <- message
+			onNewMessageCallback()
 		case <-ctx.Done():
 			return
 		}
