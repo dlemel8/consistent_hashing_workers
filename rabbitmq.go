@@ -199,6 +199,7 @@ func handleDeliveries(ctx context.Context, message interface{}, onNewMessageCall
 			}
 			onNewMessageCallback()
 		case <-ctx.Done():
+			log.Info("consuming has canceled")
 			return
 		}
 	}

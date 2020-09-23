@@ -4,43 +4,54 @@ import (
 	"consistenthashing"
 	"context"
 	"fmt"
+	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
+	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	"math/rand"
 	"time"
 )
 
 func main() {
-	rand.Seed(time.Now().UTC().UnixNano())
-	consistenthashing.SetupConfig()
+	consistenthashing.RunCommand(func(cmd *cobra.Command, args []string) error {
+		rabbitMqUrl := viper.GetString("rabbitmq_url")
+		rabbitmqConnection, err := consistenthashing.CreateRabbitMqConnection(rabbitMqUrl)
+		if err != nil {
+			return errors.Wrap(err, "failed to create RabbitMQ connection")
+		}
+		defer rabbitmqConnection.Close()
 
-	rabbitMqUrl := viper.GetString("rabbitmq_url")
-	rabbitmqConnection, err := consistenthashing.CreateRabbitMqConnection(rabbitMqUrl)
-	exitIfError(err, "failed to create RabbitMQ connection")
-	defer rabbitmqConnection.Close()
+		results, err := consistenthashing.CreateRabbitMqPublisher(rabbitmqConnection, consistenthashing.JobResultsExchange)
+		if err != nil {
+			return errors.Wrap(err, "failed to create RabbitMQ results publisher")
+		}
+		defer results.Close()
 
-	results, err := consistenthashing.CreateRabbitMqPublisher(rabbitmqConnection, consistenthashing.JobResultsExchange)
-	exitIfError(err, "failed to create RabbitMQ results")
-	defer results.Close()
+		jobs, err := consistenthashing.CreateRabbitMqConsumer(
+			rabbitmqConnection,
+			consistenthashing.JobsExchange,
+			"jobs",
+			"#",
+		)
+		if err != nil {
+			return errors.Wrap(err, "failed to create RabbitMQ jobs consumer")
+		}
+		defer jobs.Close()
 
-	jobs, err := consistenthashing.CreateRabbitMqConsumer(
-		rabbitmqConnection,
-		consistenthashing.JobsExchange,
-		"jobs",
-		"#")
-	exitIfError(err, "failed to create RabbitMQ jobs")
-	defer jobs.Close()
-
-	err = processJobs(jobs, results)
-	exitIfError(err, "failed to consume RabbitMQ")
+		return processJobs(cmd.Context(), jobs, results)
+	})
 }
 
-func processJobs(jobs *consistenthashing.RabbitMqConsumer, results *consistenthashing.RabbitMqPublisher) error {
+func processJobs(
+	ctx context.Context,
+	jobs *consistenthashing.RabbitMqConsumer,
+	results *consistenthashing.RabbitMqPublisher) error {
+
 	consumerId := viper.GetString("hostname")
 	log.WithField("consumerId", consumerId).Info("start consuming jobs")
 
 	messagePtr := &consistenthashing.ContinuesJob{}
-	err := jobs.Consume(context.Background(), messagePtr, func() {
+	err := jobs.Consume(ctx, messagePtr, func() {
 		msToSleep := rand.Intn(10)
 		time.Sleep(time.Duration(msToSleep) * time.Millisecond)
 
@@ -49,11 +60,5 @@ func processJobs(jobs *consistenthashing.RabbitMqConsumer, results *consistentha
 			log.WithError(err).Error("failed to publish job result")
 		}
 	})
-	return err
-}
-
-func exitIfError(err error, logMessage string) {
-	if err != nil {
-		log.WithError(err).Fatal(logMessage)
-	}
+	return errors.Wrap(err, "failed to consume RabbitMQ")
 }
