@@ -19,6 +19,10 @@ var (
 		Name: "jobs",
 		Type: "topic",
 	}
+	JobResultsExchange = Exchange{
+		Name: "job_results",
+		Type: "topic",
+	}
 )
 
 type RabbitMqConnection struct {

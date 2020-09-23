@@ -24,6 +24,7 @@ services:
     depends_on:
       rabbitmq:
         condition: service_healthy
+    scale: 2
 
   rabbitmq:
     image: rabbitmq:3.8.2-management
