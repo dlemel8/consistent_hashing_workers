@@ -7,7 +7,7 @@ services:
       args:
         EXECUTABLE: publisher
     environment:
-      NUMBER_OF_JOB_IDS: 100
+      NUMBER_OF_JOB_IDS: 1000
       NUMBER_OF_JOBS: 100000
       RABBITMQ_URL: amqp://test:test123@rabbitmq:5672/
     depends_on:
@@ -46,5 +46,7 @@ services:
     ports:
       - 127.0.0.1:5672:5672
       - 127.0.0.1:15672:15672
+    volumes:
+      - ./rabbitmq_enabled_plugins:/etc/rabbitmq/enabled_plugins:ro
     healthcheck:
       test: rabbitmqctl status

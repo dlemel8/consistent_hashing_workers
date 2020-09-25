@@ -27,27 +27,28 @@ func main() {
 		}
 		defer results.Close()
 
+		consumerId := viper.GetString("hostname")
 		jobs, err := consistenthashing.CreateRabbitMqConsumer(
 			rabbitmqConnection,
 			consistenthashing.JobsExchange,
-			"jobs",
-			"#",
+			fmt.Sprintf("jobs_%s", consumerId),
+			"8",
 		)
 		if err != nil {
 			return errors.Wrap(err, "failed to create RabbitMQ jobs consumer")
 		}
 		defer jobs.Close()
 
-		return processJobs(cmd.Context(), jobs, results)
+		return processJobs(cmd.Context(), consumerId, jobs, results)
 	})
 }
 
 func processJobs(
 	ctx context.Context,
+	consumerId string,
 	jobs *consistenthashing.RabbitMqConsumer,
 	results *consistenthashing.RabbitMqPublisher) error {
 
-	consumerId := viper.GetString("hostname")
 	log.WithField("consumerId", consumerId).Info("start consuming jobs")
 
 	messagePtr := &consistenthashing.ContinuesJob{}

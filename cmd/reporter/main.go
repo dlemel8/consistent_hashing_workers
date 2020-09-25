@@ -4,6 +4,7 @@ import (
 	"consistenthashing"
 	"context"
 	"fmt"
+	"github.com/deckarep/golang-set"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
@@ -14,7 +15,16 @@ import (
 type resultsReport struct {
 	expectedResults    uint32
 	processedResults   uint32
-	jobIdToProcessedBy map[uint64][]string
+	jobIdToProcessedBy map[uint64]mapset.Set
+}
+
+func (r *resultsReport) processed(id uint64, processedBy string) {
+	r.processedResults++
+
+	if _, ok := r.jobIdToProcessedBy[id]; !ok {
+		r.jobIdToProcessedBy[id] = mapset.NewSet()
+	}
+	r.jobIdToProcessedBy[id].Add(processedBy)
 }
 
 func (r *resultsReport) doneProcessing() bool {
@@ -35,7 +45,7 @@ func (r *resultsReport) String() string {
 func (r *resultsReport) processedByMoreThanOneWorker() uint32 {
 	res := uint32(0)
 	for _, processedBy := range r.jobIdToProcessedBy {
-		if len(processedBy) > 1 {
+		if processedBy.Cardinality() > 1 {
 			res++
 		}
 	}
@@ -75,7 +85,7 @@ func main() {
 func processResults(base context.Context, results *consistenthashing.RabbitMqConsumer) (*resultsReport, error) {
 	res := &resultsReport{
 		expectedResults:    viper.GetUint32("number_of_jobs"),
-		jobIdToProcessedBy: make(map[uint64][]string),
+		jobIdToProcessedBy: make(map[uint64]mapset.Set),
 	}
 
 	log.WithField("numberOfJobs", res.expectedResults).Info("start consuming results")
@@ -83,10 +93,7 @@ func processResults(base context.Context, results *consistenthashing.RabbitMqCon
 	messagePtr := &consistenthashing.JobResult{}
 	ctx, cancel := context.WithCancel(base)
 	err := results.Consume(ctx, messagePtr, func() {
-		res.processedResults++
-
-		appendToSliceValue(res.jobIdToProcessedBy, messagePtr.Id, messagePtr.ProcessedBy)
-
+		res.processed(messagePtr.Id, messagePtr.ProcessedBy)
 		if res.doneProcessing() {
 			cancel()
 		}
@@ -97,11 +104,4 @@ func processResults(base context.Context, results *consistenthashing.RabbitMqCon
 	}
 
 	return res, nil
-}
-
-func appendToSliceValue(mapOfSlices map[uint64][]string, key uint64, value string) {
-	if _, ok := mapOfSlices[key]; !ok {
-		mapOfSlices[key] = make([]string, 0)
-	}
-	mapOfSlices[key] = append(mapOfSlices[key], value)
 }

@@ -17,7 +17,7 @@ type Exchange struct {
 var (
 	JobsExchange = Exchange{
 		Name: "jobs",
-		Type: "topic",
+		Type: "x-consistent-hash",
 	}
 	JobResultsExchange = Exchange{
 		Name: "job_results",
@@ -141,9 +141,9 @@ func CreateRabbitMqConsumer(
 
 	if _, err := channel.QueueDeclare(
 		queueName,
+		false,
+		false,
 		true,
-		false,
-		false,
 		false,
 		nil,
 	); err != nil {
