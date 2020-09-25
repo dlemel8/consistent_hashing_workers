@@ -32,8 +32,7 @@ func main() {
 		}
 		defer jobs.Close()
 
-		numberOfJobs := viper.GetUint32("number_of_jobs")
-		return publishJobs(cmd.Context(), jobIds, numberOfJobs, jobs)
+		return publishJobs(cmd.Context(), jobIds, jobs)
 	})
 }
 
@@ -51,12 +50,8 @@ func waitForWorkers() {
 	time.Sleep(5 * time.Second)
 }
 
-func publishJobs(
-	ctx context.Context,
-	jobIds []uint64,
-	numberOfJobs uint32,
-	jobs *consistenthashing.RabbitMqPublisher) error {
-
+func publishJobs(ctx context.Context, jobIds []uint64, jobs *consistenthashing.RabbitMqPublisher) error {
+	numberOfJobs := viper.GetUint32("number_of_jobs")
 	log.WithField("numberOfJobs", numberOfJobs).Info("start publishing jobs")
 
 	for i := uint32(0); i < numberOfJobs; i++ {
@@ -73,6 +68,6 @@ func publishJobs(
 		}
 	}
 
-	log.WithField("numberOfJobs", numberOfJobs).Info("done publishing jobs")
+	log.Info("done publishing jobs")
 	return nil
 }

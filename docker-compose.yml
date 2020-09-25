@@ -7,8 +7,8 @@ services:
       args:
         EXECUTABLE: publisher
     environment:
-      NUMBER_OF_JOB_IDS: 10
-      NUMBER_OF_JOBS: 100
+      NUMBER_OF_JOB_IDS: 100
+      NUMBER_OF_JOBS: 100000
       RABBITMQ_URL: amqp://test:test123@rabbitmq:5672/
     depends_on:
       rabbitmq:
@@ -24,7 +24,19 @@ services:
     depends_on:
       rabbitmq:
         condition: service_healthy
-    scale: 2
+    scale: 6
+
+  reporter:
+    build:
+      context: .
+      args:
+        EXECUTABLE: reporter
+    environment:
+      NUMBER_OF_JOBS: 100000
+      RABBITMQ_URL: amqp://test:test123@rabbitmq:5672/
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
 
   rabbitmq:
     image: rabbitmq:3.8.2-management
