@@ -1,0 +1,19 @@
+version: '2.4'
+
+services:
+  publisher:
+    environment:
+      MESSAGING_STRATEGY: ZeroMQ
+    expose:
+      - 8888
+
+  worker:
+    environment:
+      MESSAGING_STRATEGY: ZeroMQ
+    scale: 6
+
+  reporter:
+    environment:
+      MESSAGING_STRATEGY: ZeroMQ
+    expose:
+      - 9999

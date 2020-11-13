@@ -1,0 +1,39 @@
+version: '2.4'
+
+services:
+  publisher:
+    environment:
+      MESSAGING_STRATEGY: RabbitMQ
+      RABBITMQ_URL: amqp://test:test123@rabbitmq:5672/
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+
+  worker:
+    environment:
+      MESSAGING_STRATEGY: RabbitMQ
+      RABBITMQ_URL: amqp://test:test123@rabbitmq:5672/
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+
+  reporter:
+    environment:
+      MESSAGING_STRATEGY: RabbitMQ
+      RABBITMQ_URL: amqp://test:test123@rabbitmq:5672/
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+
+  rabbitmq:
+    image: rabbitmq:3.8.2-management
+    environment:
+      RABBITMQ_DEFAULT_USER: test
+      RABBITMQ_DEFAULT_PASS: test123
+    ports:
+      - 127.0.0.1:5672:5672
+      - 127.0.0.1:15672:15672
+    volumes:
+      - ./rabbitmq_enabled_plugins:/etc/rabbitmq/enabled_plugins:ro
+    healthcheck:
+      test: rabbitmqctl status

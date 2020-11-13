@@ -9,25 +9,12 @@ services:
     environment:
       NUMBER_OF_JOB_IDS: 1000
       NUMBER_OF_JOBS: 100000
-      MESSAGING_STRATEGY: ZeroMQ
-      RABBITMQ_URL: amqp://test:test123@rabbitmq:5672/
-    expose:
-      - 8888
-    depends_on:
-      rabbitmq:
-        condition: service_healthy
 
   worker:
     build:
       context: .
       args:
         EXECUTABLE: worker
-    environment:
-      MESSAGING_STRATEGY: ZeroMQ
-      RABBITMQ_URL: amqp://test:test123@rabbitmq:5672/
-    depends_on:
-      rabbitmq:
-        condition: service_healthy
     scale: 6
 
   reporter:
@@ -37,23 +24,3 @@ services:
         EXECUTABLE: reporter
     environment:
       NUMBER_OF_JOBS: 100000
-      MESSAGING_STRATEGY: ZeroMQ
-      RABBITMQ_URL: amqp://test:test123@rabbitmq:5672/
-    expose:
-      - 9999
-    depends_on:
-      rabbitmq:
-        condition: service_healthy
-
-  rabbitmq:
-    image: rabbitmq:3.8.2-management
-    environment:
-      RABBITMQ_DEFAULT_USER: test
-      RABBITMQ_DEFAULT_PASS: test123
-    ports:
-      - 127.0.0.1:5672:5672
-      - 127.0.0.1:15672:15672
-    volumes:
-      - ./rabbitmq_enabled_plugins:/etc/rabbitmq/enabled_plugins:ro
-    healthcheck:
-      test: rabbitmqctl status
