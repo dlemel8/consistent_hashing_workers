@@ -54,12 +54,8 @@ func CreateRabbitMqConnection(url string) (*RabbitMqConnection, error) {
 	return &RabbitMqConnection{connection: connection}, nil
 }
 
-func (c *RabbitMqConnection) Close() {
-	if c.connection.IsClosed() {
-		return
-	}
-
-	c.connection.Close()
+func (c *RabbitMqConnection) Close() error {
+	return c.connection.Close()
 }
 
 type RabbitMqPublisher struct {
@@ -88,11 +84,11 @@ func CreateRabbitMqPublisher(connection *RabbitMqConnection, exchange Exchange) 
 	return &RabbitMqPublisher{channel: channel, exchange: exchange}, nil
 }
 
-func (p *RabbitMqPublisher) Close() {
-	p.channel.Close()
+func (p *RabbitMqPublisher) Close() error {
+	return p.channel.Close()
 }
 
-func (p RabbitMqPublisher) Publish(routingKey string, message interface{}) error {
+func (p *RabbitMqPublisher) Publish(routingKey string, message interface{}) error {
 	body, err := json.Marshal(message)
 	if err != nil {
 		return err
@@ -163,8 +159,8 @@ func CreateRabbitMqConsumer(
 	return &RabbitMqConsumer{channel: channel, exchange: exchange, queueName: queueName}, nil
 }
 
-func (c *RabbitMqConsumer) Close() {
-	c.channel.Close()
+func (c *RabbitMqConsumer) Close() error {
+	return c.channel.Close()
 }
 
 func (c *RabbitMqConsumer) Consume(ctx context.Context, messagePtr interface{}, onNewMessageCallback func()) error {
@@ -186,11 +182,11 @@ func (c *RabbitMqConsumer) Consume(ctx context.Context, messagePtr interface{}, 
 	return nil
 }
 
-func handleDeliveries(ctx context.Context, message interface{}, onNewMessageCallback func(), in <-chan amqp.Delivery) {
+func handleDeliveries(ctx context.Context, messagePtr interface{}, onNewMessageCallback func(), in <-chan amqp.Delivery) {
 	for {
 		select {
 		case delivery := <-in:
-			if err := json.Unmarshal(delivery.Body, message); err != nil {
+			if err := json.Unmarshal(delivery.Body, messagePtr); err != nil {
 				log.WithFields(log.Fields{
 					log.ErrorKey: err,
 					"message":    delivery.Body,

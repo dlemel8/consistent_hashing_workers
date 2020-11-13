@@ -17,18 +17,18 @@ func main() {
 		numberOfJobIds := viper.GetUint32("number_of_job_ids")
 		jobIds := generateJobIds(numberOfJobIds)
 
-		rabbitMqUrl := viper.GetString("rabbitmq_url")
-		rabbitmqConnection, err := consistenthashing.CreateRabbitMqConnection(rabbitMqUrl)
+		strategy := consistenthashing.MessagingStrategy(viper.GetString("messaging_strategy"))
+		factory, err := consistenthashing.CreateMessagingFactory(strategy)
 		if err != nil {
-			return errors.Wrap(err, "failed to create RabbitMQ connection")
+			return errors.Wrap(err, "failed to create messaging factory")
 		}
-		defer rabbitmqConnection.Close()
+		defer factory.Close()
 
 		waitForWorkers()
 
-		jobs, err := consistenthashing.CreateRabbitMqPublisher(rabbitmqConnection, consistenthashing.JobsExchange)
+		jobs, err := factory.CreateJobsPublisher()
 		if err != nil {
-			return errors.Wrap(err, "failed to create RabbitMQ jobs")
+			return errors.Wrap(err, "failed to create jobs publisher")
 		}
 		defer jobs.Close()
 
@@ -50,7 +50,7 @@ func waitForWorkers() {
 	time.Sleep(5 * time.Second)
 }
 
-func publishJobs(ctx context.Context, jobIds []uint64, jobs *consistenthashing.RabbitMqPublisher) error {
+func publishJobs(ctx context.Context, jobIds []uint64, jobs consistenthashing.Publisher) error {
 	numberOfJobs := viper.GetUint32("number_of_jobs")
 	log.WithField("numberOfJobs", numberOfJobs).Info("start publishing jobs")
 
@@ -64,7 +64,7 @@ func publishJobs(ctx context.Context, jobIds []uint64, jobs *consistenthashing.R
 		jobId := jobIds[jobIdIndex]
 		job := consistenthashing.ContinuesJob{Id: jobId}
 		if err := jobs.Publish(fmt.Sprintf("%d", jobId), job); err != nil {
-			return errors.Wrap(err, "failed to publish to RabbitMQ")
+			return errors.Wrap(err, "failed to publish job")
 		}
 	}
 

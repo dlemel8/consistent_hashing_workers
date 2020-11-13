@@ -54,21 +54,16 @@ func (r *resultsReport) processedByMoreThanOneWorker() uint32 {
 
 func main() {
 	consistenthashing.RunCommand(func(cmd *cobra.Command, args []string) error {
-		rabbitMqUrl := viper.GetString("rabbitmq_url")
-		rabbitmqConnection, err := consistenthashing.CreateRabbitMqConnection(rabbitMqUrl)
+		strategy := consistenthashing.MessagingStrategy(viper.GetString("messaging_strategy"))
+		factory, err := consistenthashing.CreateMessagingFactory(strategy)
 		if err != nil {
-			return errors.Wrap(err, "failed to create RabbitMQ connection")
+			return errors.Wrap(err, "failed to create messaging factory")
 		}
-		defer rabbitmqConnection.Close()
+		defer factory.Close()
 
-		results, err := consistenthashing.CreateRabbitMqConsumer(
-			rabbitmqConnection,
-			consistenthashing.JobResultsExchange,
-			"results",
-			"#",
-		)
+		results, err := factory.CreateResultsConsumer("results")
 		if err != nil {
-			return errors.Wrap(err, "failed to create RabbitMQ results consumer")
+			return errors.Wrap(err, "failed to create results consumer")
 		}
 		defer results.Close()
 
@@ -82,7 +77,7 @@ func main() {
 	})
 }
 
-func processResults(base context.Context, results *consistenthashing.RabbitMqConsumer) (*resultsReport, error) {
+func processResults(base context.Context, results consistenthashing.Consumer) (*resultsReport, error) {
 	res := &resultsReport{
 		expectedResults:    viper.GetUint32("number_of_jobs"),
 		jobIdToProcessedBy: make(map[uint64]mapset.Set),
@@ -100,7 +95,7 @@ func processResults(base context.Context, results *consistenthashing.RabbitMqCon
 	})
 
 	if err != nil {
-		return nil, errors.Wrap(err, "failed to consume RabbitMQ")
+		return nil, errors.Wrap(err, "failed to consume results")
 	}
 
 	return res, nil

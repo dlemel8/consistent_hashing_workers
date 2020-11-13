@@ -9,7 +9,10 @@ services:
     environment:
       NUMBER_OF_JOB_IDS: 1000
       NUMBER_OF_JOBS: 100000
+      MESSAGING_STRATEGY: ZeroMQ
       RABBITMQ_URL: amqp://test:test123@rabbitmq:5672/
+    expose:
+      - 8888
     depends_on:
       rabbitmq:
         condition: service_healthy
@@ -20,6 +23,7 @@ services:
       args:
         EXECUTABLE: worker
     environment:
+      MESSAGING_STRATEGY: ZeroMQ
       RABBITMQ_URL: amqp://test:test123@rabbitmq:5672/
     depends_on:
       rabbitmq:
@@ -33,7 +37,10 @@ services:
         EXECUTABLE: reporter
     environment:
       NUMBER_OF_JOBS: 100000
+      MESSAGING_STRATEGY: ZeroMQ
       RABBITMQ_URL: amqp://test:test123@rabbitmq:5672/
+    expose:
+      - 9999
     depends_on:
       rabbitmq:
         condition: service_healthy

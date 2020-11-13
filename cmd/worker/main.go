@@ -14,28 +14,23 @@ import (
 
 func main() {
 	consistenthashing.RunCommand(func(cmd *cobra.Command, args []string) error {
-		rabbitMqUrl := viper.GetString("rabbitmq_url")
-		rabbitmqConnection, err := consistenthashing.CreateRabbitMqConnection(rabbitMqUrl)
+		strategy := consistenthashing.MessagingStrategy(viper.GetString("messaging_strategy"))
+		factory, err := consistenthashing.CreateMessagingFactory(strategy)
 		if err != nil {
-			return errors.Wrap(err, "failed to create RabbitMQ connection")
+			return errors.Wrap(err, "failed to create messaging factory")
 		}
-		defer rabbitmqConnection.Close()
+		defer factory.Close()
 
-		results, err := consistenthashing.CreateRabbitMqPublisher(rabbitmqConnection, consistenthashing.JobResultsExchange)
+		results, err := factory.CreateResultsPublisher()
 		if err != nil {
-			return errors.Wrap(err, "failed to create RabbitMQ results publisher")
+			return errors.Wrap(err, "failed to create results publisher")
 		}
 		defer results.Close()
 
 		consumerId := viper.GetString("hostname")
-		jobs, err := consistenthashing.CreateRabbitMqConsumer(
-			rabbitmqConnection,
-			consistenthashing.JobsExchange,
-			fmt.Sprintf("jobs_%s", consumerId),
-			"8",
-		)
+		jobs, err := factory.CreateJobsConsumer(fmt.Sprintf("jobs_%s", consumerId))
 		if err != nil {
-			return errors.Wrap(err, "failed to create RabbitMQ jobs consumer")
+			return errors.Wrap(err, "failed to create jobs consumer")
 		}
 		defer jobs.Close()
 
@@ -46,8 +41,8 @@ func main() {
 func processJobs(
 	ctx context.Context,
 	consumerId string,
-	jobs *consistenthashing.RabbitMqConsumer,
-	results *consistenthashing.RabbitMqPublisher) error {
+	jobs consistenthashing.Consumer,
+	results consistenthashing.Publisher) error {
 
 	log.WithField("consumerId", consumerId).Info("start consuming jobs")
 
@@ -61,5 +56,5 @@ func processJobs(
 			log.WithError(err).Error("failed to publish job result")
 		}
 	})
-	return errors.Wrap(err, "failed to consume RabbitMQ")
+	return errors.Wrap(err, "failed to consume jobs")
 }
