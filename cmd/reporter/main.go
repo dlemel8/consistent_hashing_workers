@@ -89,6 +89,11 @@ func processResults(base context.Context, results consistenthashing.Consumer) (*
 	ctx, cancel := context.WithCancel(base)
 	err := results.Consume(ctx, messagePtr, func() {
 		res.processed(messagePtr.Id, messagePtr.ProcessedBy)
+
+		if res.processedResults%1000 == 0 {
+			log.WithField("processed", res.processedResults).Info("status")
+		}
+
 		if res.doneProcessing() {
 			cancel()
 		}
