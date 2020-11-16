@@ -31,7 +31,6 @@ func RunCommand(cmd func(cmd *cobra.Command, args []string) error) {
 			rand.Seed(time.Now().UTC().UnixNano())
 
 			viper.AutomaticEnv()
-			viper.SetDefault("rabbitmq_url", "amqp://test:test123@localhost:5672/")
 
 			signal.Notify(signals, syscall.SIGINT, syscall.SIGTERM)
 		},

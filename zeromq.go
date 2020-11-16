@@ -22,7 +22,7 @@ type ZeroMqContext struct {
 	context *zmq4.Context
 }
 
-func CreateZeroMqContext() (*ZeroMqContext, error) {
+func createZeroMqContext() (*ZeroMqContext, error) {
 	context, err := zmq4.NewContext()
 	if err != nil {
 		return nil, err
@@ -38,7 +38,7 @@ type ZeroMqPublisher struct {
 	socket *zmq4.Socket
 }
 
-func CreateZeroMqPublisher(context *ZeroMqContext, endpoint TcpEndpoint) (*ZeroMqPublisher, error) {
+func createZeroMqPublisher(context *ZeroMqContext, endpoint TcpEndpoint) (*ZeroMqPublisher, error) {
 	socket, err := createSocket(context, endpoint, zmq4.PUSH)
 	if err != nil {
 		return nil, err
@@ -64,7 +64,7 @@ type ZeroMqConsumer struct {
 	socket *zmq4.Socket
 }
 
-func CreateZeroMqConsumer(ctx *ZeroMqContext, endpoint TcpEndpoint) (*ZeroMqConsumer, error) {
+func createZeroMqConsumer(ctx *ZeroMqContext, endpoint TcpEndpoint) (*ZeroMqConsumer, error) {
 	socket, err := createSocket(ctx, endpoint, zmq4.PULL)
 	if err != nil {
 		return nil, err

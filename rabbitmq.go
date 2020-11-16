@@ -29,7 +29,7 @@ type RabbitMqConnection struct {
 	connection *amqp.Connection
 }
 
-func CreateRabbitMqConnection(url string) (*RabbitMqConnection, error) {
+func createRabbitMqConnection(url string) (*RabbitMqConnection, error) {
 	var connection *amqp.Connection
 
 	err := backoff.RetryNotify(
@@ -63,7 +63,7 @@ type RabbitMqPublisher struct {
 	exchange Exchange
 }
 
-func CreateRabbitMqPublisher(connection *RabbitMqConnection, exchange Exchange) (*RabbitMqPublisher, error) {
+func createRabbitMqPublisher(connection *RabbitMqConnection, exchange Exchange) (*RabbitMqPublisher, error) {
 	channel, err := connection.connection.Channel()
 	if err != nil {
 		return nil, err
@@ -112,7 +112,7 @@ type RabbitMqConsumer struct {
 	queueName string
 }
 
-func CreateRabbitMqConsumer(
+func createRabbitMqConsumer(
 	connection *RabbitMqConnection,
 	exchange Exchange,
 	queueName string,

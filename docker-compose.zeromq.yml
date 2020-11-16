@@ -4,16 +4,24 @@ services:
   publisher:
     environment:
       MESSAGING_STRATEGY: ZeroMQ
+      ZEROMQ_JOBS_ENDPOINT_NAME: "*"
+      ZEROMQ_JOBS_ENDPOINT_PORT: 8888
     expose:
       - 8888
 
   worker:
     environment:
       MESSAGING_STRATEGY: ZeroMQ
+      ZEROMQ_JOBS_ENDPOINT_NAME: publisher
+      ZEROMQ_JOBS_ENDPOINT_PORT: 8888
+      ZEROMQ_RESULTS_ENDPOINT_NAME: reporter
+      ZEROMQ_RESULTS_ENDPOINT_PORT: 9999
     scale: 6
 
   reporter:
     environment:
       MESSAGING_STRATEGY: ZeroMQ
+      ZEROMQ_RESULTS_ENDPOINT_NAME: "*"
+      ZEROMQ_RESULTS_ENDPOINT_PORT: 9999
     expose:
       - 9999
