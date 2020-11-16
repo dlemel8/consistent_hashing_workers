@@ -23,11 +23,11 @@ type ZeroMqContext struct {
 }
 
 func createZeroMqContext() (*ZeroMqContext, error) {
-	context, err := zmq4.NewContext()
+	ctx, err := zmq4.NewContext()
 	if err != nil {
 		return nil, err
 	}
-	return &ZeroMqContext{context}, nil
+	return &ZeroMqContext{ctx}, nil
 }
 
 func (c *ZeroMqContext) Close() error {

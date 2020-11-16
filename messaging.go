@@ -51,7 +51,7 @@ func CreateMessagingFactory(strategy MessagingStrategy) (Factory, error) {
 		return &ZeroMqFactory{zeromqContext}, nil
 
 	default:
-		return nil, fmt.Errorf("unsupported messaging strategy %d", strategy)
+		return nil, fmt.Errorf("unsupported messaging strategy %s", strategy)
 	}
 }
 
