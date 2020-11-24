@@ -73,19 +73,21 @@ func createConsistentHashingQueues() *consistentHashingQueues {
 	}
 }
 
-// TODO - refactor to push to queue (key) / pop from queue (node)
 func (q *consistentHashingQueues) popNodeMessage(node string) []byte {
 	q.ring.addOrVerify(node)
 	queue := q.getOrCreateQueue(node)
 	return <-queue
 }
 
-func (q *consistentHashingQueues) getQueueByKey(key string) (chan []byte, error) {
+func (q *consistentHashingQueues) pushMessage(key string, message []byte) error {
 	node, err := q.ring.get(key)
 	if err != nil {
-		return nil, err
+		return err
 	}
-	return q.getOrCreateQueue(node), nil
+
+	queue := q.getOrCreateQueue(node)
+	queue <- message
+	return nil
 }
 
 func (q *consistentHashingQueues) getOrCreateQueue(node string) chan []byte {

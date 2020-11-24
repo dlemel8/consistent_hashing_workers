@@ -63,13 +63,9 @@ func (a *consistentHashingAlgorithm) consumerType() zmq4.Type {
 }
 
 func (a *consistentHashingAlgorithm) publish(_ *zmq4.Socket, messageId string, message []byte) error {
-	var queue chan []byte
-
-	if err := backoff.RetryNotify(
+	return backoff.RetryNotify(
 		func() error {
-			var err error
-			queue, err = a.consumerIdQueues.getQueueByKey(messageId)
-			return err
+			return a.consumerIdQueues.pushMessage(messageId, message)
 		},
 		backoff.NewExponentialBackOff(),
 		func(err error, duration time.Duration) {
@@ -79,13 +75,7 @@ func (a *consistentHashingAlgorithm) publish(_ *zmq4.Socket, messageId string, m
 				"duration":   duration},
 			).Error("failed to get queue, waiting")
 		},
-	); err != nil {
-		return err
-	}
-
-	queue <- message
-
-	return nil
+	)
 }
 
 func (a *consistentHashingAlgorithm) consume(socket *zmq4.Socket) ([]byte, error) {

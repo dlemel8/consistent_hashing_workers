@@ -49,8 +49,7 @@ func processJobs(
 	messagePtr := &consistenthashing.ContinuesJob{}
 	err := jobs.Consume(ctx, messagePtr, func() {
 		// TODO - move to publisher and get from vyper
-		// TODO - original value was 10, but it cause drops on the we. fix it
-		msToSleep := rand.Intn(1)
+		msToSleep := rand.Intn(10)
 		time.Sleep(time.Duration(msToSleep) * time.Millisecond)
 
 		result := &consistenthashing.JobResult{Id: messagePtr.Id, ProcessedBy: consumerId}
