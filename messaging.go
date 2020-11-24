@@ -68,7 +68,9 @@ func (f *RabbitMqFactory) CreateJobsPublisher() (Publisher, error) {
 }
 
 func (f *RabbitMqFactory) CreateJobsConsumer(consumerId string) (Consumer, error) {
-	return createRabbitMqConsumer(f.connection, JobsExchange, fmt.Sprintf("jobs_%s", consumerId), "8")
+	queueName := fmt.Sprintf("jobs_%s", consumerId)
+	routingKey := fmt.Sprintf("%d", weightPerWorker)
+	return createRabbitMqConsumer(f.connection, JobsExchange, queueName, routingKey)
 }
 
 func (f *RabbitMqFactory) CreateResultsPublisher() (Publisher, error) {
@@ -76,7 +78,8 @@ func (f *RabbitMqFactory) CreateResultsPublisher() (Publisher, error) {
 }
 
 func (f *RabbitMqFactory) CreateResultsConsumer(consumerId string) (Consumer, error) {
-	return createRabbitMqConsumer(f.connection, JobResultsExchange, "results", "#")
+	queueName := fmt.Sprintf("results_%s", consumerId)
+	return createRabbitMqConsumer(f.connection, JobResultsExchange, queueName, "#")
 }
 
 type ZeroMqFactory struct {
@@ -88,33 +91,50 @@ func (f *ZeroMqFactory) Close() error {
 }
 
 func (f *ZeroMqFactory) CreateJobsPublisher() (Publisher, error) {
-	return createZeroMqPublisher(f.context, TcpEndpoint{
+	endpoint := TcpEndpoint{
 		Name:     viper.GetString("zeromq_jobs_endpoint_name"),
 		port:     uint16(viper.GetUint32("zeromq_jobs_endpoint_port")),
 		isServer: true,
-	})
+	}
+
+	publisher, err := createZeroMqPublisher(f.context, endpoint, jobsAlgorithm)
+	if err != nil {
+		return nil, err
+	}
+
+	go func() {
+		if err := jobsAlgorithm.startProxy(publisher.socket); err != nil {
+			log.WithError(err).Error("failed to start zeromq proxy")
+		}
+	}()
+
+	return publisher, nil
 }
 
 func (f *ZeroMqFactory) CreateJobsConsumer(consumerId string) (Consumer, error) {
-	return createZeroMqConsumer(f.context, TcpEndpoint{
+	endpoint := TcpEndpoint{
 		Name:     viper.GetString("zeromq_jobs_endpoint_name"),
 		port:     uint16(viper.GetUint32("zeromq_jobs_endpoint_port")),
 		isServer: false,
-	})
+	}
+
+	return createZeroMqConsumer(f.context, endpoint, jobsAlgorithm)
 }
 
 func (f *ZeroMqFactory) CreateResultsPublisher() (Publisher, error) {
-	return createZeroMqPublisher(f.context, TcpEndpoint{
+	endpoint := TcpEndpoint{
 		Name:     viper.GetString("zeromq_results_endpoint_name"),
 		port:     uint16(viper.GetUint32("zeromq_results_endpoint_port")),
 		isServer: false,
-	})
+	}
+	return createZeroMqPublisher(f.context, endpoint, resultsAlgorithm)
 }
 
-func (f *ZeroMqFactory) CreateResultsConsumer(consumerId string) (Consumer, error) {
-	return createZeroMqConsumer(f.context, TcpEndpoint{
+func (f *ZeroMqFactory) CreateResultsConsumer(_ string) (Consumer, error) {
+	endpoint := TcpEndpoint{
 		Name:     viper.GetString("zeromq_results_endpoint_name"),
 		port:     uint16(viper.GetUint32("zeromq_results_endpoint_port")),
 		isServer: true,
-	})
+	}
+	return createZeroMqConsumer(f.context, endpoint, resultsAlgorithm)
 }

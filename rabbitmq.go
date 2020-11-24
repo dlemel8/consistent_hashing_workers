@@ -32,12 +32,13 @@ type RabbitMqConnection struct {
 func createRabbitMqConnection(url string) (*RabbitMqConnection, error) {
 	var connection *amqp.Connection
 
-	err := backoff.RetryNotify(
+	if err := backoff.RetryNotify(
 		func() error {
 			var err error
 			connection, err = amqp.Dial(url)
 			return err
-		}, backoff.NewExponentialBackOff(),
+		},
+		backoff.NewExponentialBackOff(),
 		func(err error, duration time.Duration) {
 			log.WithFields(log.Fields{
 				log.ErrorKey: err,
@@ -45,9 +46,7 @@ func createRabbitMqConnection(url string) (*RabbitMqConnection, error) {
 				"duration":   duration},
 			).Error("failed to connect to RabbitMQ, waiting")
 		},
-	)
-
-	if err != nil {
+	); err != nil {
 		return nil, err
 	}
 

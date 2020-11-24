@@ -24,13 +24,13 @@ func main() {
 		}
 		defer factory.Close()
 
-		waitForWorkers()
-
 		jobs, err := factory.CreateJobsPublisher()
 		if err != nil {
 			return errors.Wrap(err, "failed to create jobs publisher")
 		}
 		defer jobs.Close()
+
+		waitForWorkers()
 
 		return publishJobs(cmd.Context(), jobIds, jobs)
 	})
