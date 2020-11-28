@@ -87,9 +87,9 @@ func (a *consistentHashingAlgorithm) consume(socket *zmq4.Socket) ([]byte, error
 }
 
 type consistentHashingLoadBalancer struct {
-	consumerQueues   *consistentHashingQueues
-	socket           *zmq4.Socket
-	donePublishingCh atomic.Value
+	consumerQueues *consistentHashingQueues
+	socket         *zmq4.Socket
+	closingChPtr   atomic.Value
 }
 
 func createConsistentHashingLoadBalancer(ctx *ZeroMqContext, endpoint TcpEndpoint) (*consistentHashingLoadBalancer, error) {
@@ -103,12 +103,12 @@ func createConsistentHashingLoadBalancer(ctx *ZeroMqContext, endpoint TcpEndpoin
 		socket:         socket,
 	}
 
-	go res.startProxy()
+	go res.startLoadBalancer()
 	return res, nil
 }
 
 func (b *consistentHashingLoadBalancer) Publish(messageId string, message interface{}) error {
-	if b.donePublishingCh.Load() != nil {
+	if b.closingChPtr.Load() != nil {
 		return fmt.Errorf("cannot publish after closing")
 	}
 
@@ -127,75 +127,85 @@ func (b *consistentHashingLoadBalancer) Publish(messageId string, message interf
 				log.ErrorKey: err,
 				"messageId":  messageId,
 				"duration":   duration},
-			).Error("failed to get queue, waiting")
+			).Error("failed to push message to queue, waiting")
 		},
 	)
 }
 
-func (b *consistentHashingLoadBalancer) startProxy() {
+func (b *consistentHashingLoadBalancer) Close() error {
+	doneClosing := make(chan interface{})
+	b.closingChPtr.Store(doneClosing)
+	log.Info("start closing process, now waiting for consumers")
+	<-doneClosing
+	return b.socket.Close()
+}
+
+func (b *consistentHashingLoadBalancer) startLoadBalancer() {
 	waitingConsumers := make([]string, 0)
 
 	poller := zmq4.NewPoller()
 	poller.Add(b.socket, zmq4.POLLIN)
 
 	for {
-		timeout := time.Duration(-1)
-		if len(waitingConsumers) > 0 {
-			timeout = time.Duration(1) * time.Second
-		}
-
-		sockets, err := poller.Poll(timeout)
-		if err != nil {
-			log.WithError(err).Warning("failed to poll consumer socket, retry")
-			continue
-		}
-
-		if len(sockets) > 0 {
-			parts, err := b.socket.RecvMessageBytes(0)
-			if err != nil {
-				log.WithError(err).Warning("failed to receive job request")
-				continue
-			}
-
-			consumerId := string(parts[0])
-			b.consumerQueues.ring.addOrVerify(consumerId)
-			waitingConsumers = append(waitingConsumers, consumerId)
-		}
+		b.registerWaitingConsumer(&waitingConsumers, poller)
 
 		consumersWithPendingMessages := b.consumerQueues.getNodesWithPendingMessages()
 		if len(consumersWithPendingMessages) == 0 {
-			donePublishingCh := b.donePublishingCh.Load()
-			if donePublishingCh != nil {
-				donePublishingCh.(chan interface{}) <- true
+			if consumingCh := b.closingChPtr.Load(); consumingCh != nil {
+				consumingCh.(chan interface{}) <- true
 				return
 			}
 
 			continue
 		}
 
-		newWaitingConsumers := make([]string, 0)
-		for _, consumerId := range waitingConsumers {
-			if _, ok := consumersWithPendingMessages[consumerId]; !ok {
-				newWaitingConsumers = append(newWaitingConsumers, consumerId)
-				continue
-			}
-
-			message := b.consumerQueues.popNodeMessage(consumerId)
-
-			if _, err := b.socket.SendMessage(consumerId, "", message); err != nil {
-				log.WithError(err).Error("failed to send requested job")
-			}
-		}
-		waitingConsumers = newWaitingConsumers
+		waitingConsumers = b.sendMessagesToWaitingConsumers(waitingConsumers, consumersWithPendingMessages)
 	}
 }
 
-func (b *consistentHashingLoadBalancer) Close() error {
-	doneConsuming := make(chan interface{})
-	b.donePublishingCh.Store(doneConsuming)
-	log.Info("done publishing, now waiting for consumers")
-	<-doneConsuming
-	return b.socket.Close()
+func (b *consistentHashingLoadBalancer) registerWaitingConsumer(waitingConsumers *[]string, poller *zmq4.Poller) {
+	timeout := time.Duration(-1)
+	if len(*waitingConsumers) > 0 {
+		timeout = time.Duration(1) * time.Second
+	}
+
+	sockets, err := poller.Poll(timeout)
+	if err != nil {
+		log.WithError(err).Warning("failed to poll consumer socket, retry")
+		return
+	}
+
+	if len(sockets) == 0 {
+		return
+	}
+
+	parts, err := b.socket.RecvMessageBytes(0)
+	if err != nil {
+		log.WithError(err).Warning("failed to receive job request")
+		return
+	}
+
+	consumerId := string(parts[0])
+	b.consumerQueues.ring.addOrVerify(consumerId)
+	*waitingConsumers = append(*waitingConsumers, consumerId)
+}
+
+func (b *consistentHashingLoadBalancer) sendMessagesToWaitingConsumers(waitingConsumers []string, consumersWithPendingMessages map[string]bool) []string {
+	newWaitingConsumers := make([]string, 0)
+	for _, consumerId := range waitingConsumers {
+		if _, ok := consumersWithPendingMessages[consumerId]; !ok {
+			newWaitingConsumers = append(newWaitingConsumers, consumerId)
+			continue
+		}
+
+		message := b.consumerQueues.popNodeMessage(consumerId)
+
+		if _, err := b.socket.SendMessage(consumerId, "", message); err != nil {
+			log.WithError(err).Error("failed to send message")
+			newWaitingConsumers = append(newWaitingConsumers, consumerId)
+		}
+	}
+	return newWaitingConsumers
 }
 
 var (
