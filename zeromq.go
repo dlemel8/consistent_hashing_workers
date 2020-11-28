@@ -7,6 +7,7 @@ import (
 	"github.com/cenkalti/backoff/v4"
 	"github.com/pebbe/zmq4"
 	log "github.com/sirupsen/logrus"
+	"sync/atomic"
 	"time"
 )
 
@@ -85,11 +86,57 @@ func (a *consistentHashingAlgorithm) consume(socket *zmq4.Socket) ([]byte, error
 	return socket.RecvBytes(0)
 }
 
-func (a *consistentHashingAlgorithm) startProxy(socket *zmq4.Socket) error {
+type consistentHashingLoadBalancer struct {
+	consumerQueues   *consistentHashingQueues
+	socket           *zmq4.Socket
+	donePublishingCh atomic.Value
+}
+
+func createConsistentHashingLoadBalancer(ctx *ZeroMqContext, endpoint TcpEndpoint) (*consistentHashingLoadBalancer, error) {
+	socket, err := createSocket(ctx, endpoint, zmq4.ROUTER)
+	if err != nil {
+		return nil, err
+	}
+
+	res := &consistentHashingLoadBalancer{
+		consumerQueues: createConsistentHashingQueues(),
+		socket:         socket,
+	}
+
+	go res.startProxy()
+	return res, nil
+}
+
+func (b *consistentHashingLoadBalancer) Publish(messageId string, message interface{}) error {
+	if b.donePublishingCh.Load() != nil {
+		return fmt.Errorf("cannot publish after closing")
+	}
+
+	data, err := json.Marshal(message)
+	if err != nil {
+		return err
+	}
+
+	return backoff.RetryNotify(
+		func() error {
+			return b.consumerQueues.pushMessage(messageId, data)
+		},
+		backoff.NewExponentialBackOff(),
+		func(err error, duration time.Duration) {
+			log.WithFields(log.Fields{
+				log.ErrorKey: err,
+				"messageId":  messageId,
+				"duration":   duration},
+			).Error("failed to get queue, waiting")
+		},
+	)
+}
+
+func (b *consistentHashingLoadBalancer) startProxy() {
 	waitingConsumers := make([]string, 0)
 
 	poller := zmq4.NewPoller()
-	poller.Add(socket, zmq4.POLLIN)
+	poller.Add(b.socket, zmq4.POLLIN)
 
 	for {
 		timeout := time.Duration(-1)
@@ -104,23 +151,25 @@ func (a *consistentHashingAlgorithm) startProxy(socket *zmq4.Socket) error {
 		}
 
 		if len(sockets) > 0 {
-			parts, err := socket.RecvMessageBytes(0)
+			parts, err := b.socket.RecvMessageBytes(0)
 			if err != nil {
 				log.WithError(err).Warning("failed to receive job request")
 				continue
 			}
 
 			consumerId := string(parts[0])
-			a.consumerIdQueues.ring.addOrVerify(consumerId)
+			b.consumerQueues.ring.addOrVerify(consumerId)
 			waitingConsumers = append(waitingConsumers, consumerId)
 		}
 
-		if len(waitingConsumers) == 0 {
-			continue
-		}
-
-		consumersWithPendingMessages := a.consumerIdQueues.getNodesWithPendingMessages()
+		consumersWithPendingMessages := b.consumerQueues.getNodesWithPendingMessages()
 		if len(consumersWithPendingMessages) == 0 {
+			donePublishingCh := b.donePublishingCh.Load()
+			if donePublishingCh != nil {
+				donePublishingCh.(chan interface{}) <- true
+				return
+			}
+
 			continue
 		}
 
@@ -131,14 +180,22 @@ func (a *consistentHashingAlgorithm) startProxy(socket *zmq4.Socket) error {
 				continue
 			}
 
-			message := a.consumerIdQueues.popNodeMessage(consumerId)
+			message := b.consumerQueues.popNodeMessage(consumerId)
 
-			if _, err := socket.SendMessage(consumerId, "", message); err != nil {
+			if _, err := b.socket.SendMessage(consumerId, "", message); err != nil {
 				log.WithError(err).Error("failed to send requested job")
 			}
 		}
 		waitingConsumers = newWaitingConsumers
 	}
+}
+
+func (b *consistentHashingLoadBalancer) Close() error {
+	doneConsuming := make(chan interface{})
+	b.donePublishingCh.Store(doneConsuming)
+	log.Info("done publishing, now waiting for consumers")
+	<-doneConsuming
+	return b.socket.Close()
 }
 
 var (
@@ -173,9 +230,6 @@ func createZeroMqPublisher(context *ZeroMqContext, endpoint TcpEndpoint, algorit
 }
 
 func (p *ZeroMqPublisher) Close() error {
-	// TODO - we currently use proxy inside job publisher so we need to wait forever - fix!
-	x := make(chan bool)
-	<-x
 	return p.socket.Close()
 }
 

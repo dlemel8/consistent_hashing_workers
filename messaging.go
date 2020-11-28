@@ -97,18 +97,7 @@ func (f *ZeroMqFactory) CreateJobsPublisher() (Publisher, error) {
 		isServer: true,
 	}
 
-	publisher, err := createZeroMqPublisher(f.context, endpoint, jobsAlgorithm)
-	if err != nil {
-		return nil, err
-	}
-
-	go func() {
-		if err := jobsAlgorithm.startProxy(publisher.socket); err != nil {
-			log.WithError(err).Error("failed to start zeromq proxy")
-		}
-	}()
-
-	return publisher, nil
+	return createConsistentHashingLoadBalancer(f.context, endpoint)
 }
 
 func (f *ZeroMqFactory) CreateJobsConsumer(consumerId string) (Consumer, error) {
