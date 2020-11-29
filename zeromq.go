@@ -7,83 +7,117 @@ import (
 	"github.com/cenkalti/backoff/v4"
 	"github.com/pebbe/zmq4"
 	log "github.com/sirupsen/logrus"
+	"io"
 	"sync/atomic"
 	"time"
 )
-
-type TcpEndpoint struct {
-	Name     string
-	port     uint16
-	isServer bool
-}
-
-func (e *TcpEndpoint) String() string {
-	return fmt.Sprintf("tcp://%s:%d", e.Name, e.port)
-}
 
 type ZeroMqContext struct {
 	context *zmq4.Context
 }
 
-type publishConsumeAlgorithm interface {
-	publisherType() zmq4.Type
-	consumerType() zmq4.Type
-	publish(socket *zmq4.Socket, messageId string, message []byte) error
-	consume(socket *zmq4.Socket) ([]byte, error)
+func createZeroMqContext() (*ZeroMqContext, error) {
+	ctx, err := zmq4.NewContext()
+	if err != nil {
+		return nil, err
+	}
+	return &ZeroMqContext{ctx}, nil
 }
 
-type roundRobinAlgorithm struct{}
-
-func (a *roundRobinAlgorithm) publisherType() zmq4.Type {
-	return zmq4.PUSH
+func (c *ZeroMqContext) Close() error {
+	return c.context.Term()
 }
 
-func (a *roundRobinAlgorithm) consumerType() zmq4.Type {
-	return zmq4.PULL
+type TcpEndpoint struct {
+	Name string
+	port uint16
 }
 
-func (a *roundRobinAlgorithm) publish(socket *zmq4.Socket, _ string, message []byte) error {
-	_, err := socket.SendBytes(message, 0)
+func (e TcpEndpoint) String() string {
+	return fmt.Sprintf("tcp://%s:%d", e.Name, e.port)
+}
+
+type ZeroMqSocket struct {
+	socket *zmq4.Socket
+}
+
+func (s *ZeroMqSocket) bind(port uint16) error {
+	return s.socket.Bind(TcpEndpoint{Name: "*", port: port}.String())
+}
+
+func (s *ZeroMqSocket) connect(endpoint TcpEndpoint) error {
+	return s.socket.Connect(endpoint.String())
+}
+
+func (s *ZeroMqSocket) Close() error {
+	return s.socket.Close()
+}
+
+type ZeroMqReqSocket struct {
+	*ZeroMqSocket
+}
+
+func createZeroMqReqSocket(ctx *ZeroMqContext, identity string) (*ZeroMqReqSocket, error) {
+	socket, err := ctx.context.NewSocket(zmq4.REQ)
+	if err != nil {
+		return nil, err
+	}
+	if err = socket.SetIdentity(identity); err != nil {
+		return nil, err
+	}
+	return &ZeroMqReqSocket{&ZeroMqSocket{socket: socket}}, nil
+}
+
+func (s *ZeroMqReqSocket) readMessage() ([]byte, error) {
+	if _, err := s.socket.Send("", 0); err != nil { // TODO - replace to empty str?
+		return nil, err
+	}
+	return s.socket.RecvBytes(0)
+}
+
+type ZeroMqPullSocket struct {
+	*ZeroMqSocket
+}
+
+func createZeroMqPullSocket(ctx *ZeroMqContext) (*ZeroMqPullSocket, error) {
+	socket, err := ctx.context.NewSocket(zmq4.PULL)
+	if err != nil {
+		return nil, err
+	}
+	return &ZeroMqPullSocket{&ZeroMqSocket{socket: socket}}, nil
+}
+
+func (s *ZeroMqPullSocket) readMessage() ([]byte, error) {
+	return s.socket.RecvBytes(0)
+}
+
+type ZeroMqPushSocket struct {
+	*ZeroMqSocket
+}
+
+func createZeroMqPushSocket(ctx *ZeroMqContext) (*ZeroMqPushSocket, error) {
+	socket, err := ctx.context.NewSocket(zmq4.PUSH)
+	if err != nil {
+		return nil, err
+	}
+	return &ZeroMqPushSocket{&ZeroMqSocket{socket: socket}}, nil
+}
+
+func (s *ZeroMqPushSocket) writeMessage(message []byte) error {
+	_, err := s.socket.SendBytes(message, 0)
 	return err
 }
 
-func (a *roundRobinAlgorithm) consume(socket *zmq4.Socket) ([]byte, error) {
-	return socket.RecvBytes(0)
+type ZeroMqRouterSocket struct {
+	*ZeroMqSocket
 }
 
-type consistentHashingAlgorithm struct {
-	consumerIdQueues *consistentHashingQueues
-}
-
-func (a *consistentHashingAlgorithm) publisherType() zmq4.Type {
-	return zmq4.ROUTER
-}
-
-func (a *consistentHashingAlgorithm) consumerType() zmq4.Type {
-	return zmq4.REQ
-}
-
-func (a *consistentHashingAlgorithm) publish(_ *zmq4.Socket, messageId string, message []byte) error {
-	return backoff.RetryNotify(
-		func() error {
-			return a.consumerIdQueues.pushMessage(messageId, message)
-		},
-		backoff.NewExponentialBackOff(),
-		func(err error, duration time.Duration) {
-			log.WithFields(log.Fields{
-				log.ErrorKey: err,
-				"messageId":  messageId,
-				"duration":   duration},
-			).Error("failed to get queue, waiting")
-		},
-	)
-}
-
-func (a *consistentHashingAlgorithm) consume(socket *zmq4.Socket) ([]byte, error) {
-	if _, err := socket.Send("job request", 0); err != nil {
+func createZeroMqRouterSocket(ctx *ZeroMqContext) (*ZeroMqRouterSocket, error) {
+	socket, err := ctx.context.NewSocket(zmq4.ROUTER)
+	if err != nil {
 		return nil, err
 	}
-	return socket.RecvBytes(0)
+	return &ZeroMqRouterSocket{&ZeroMqSocket{socket: socket}}, nil
 }
 
 type consistentHashingLoadBalancer struct {
@@ -92,15 +126,10 @@ type consistentHashingLoadBalancer struct {
 	closingChPtr   atomic.Value
 }
 
-func createConsistentHashingLoadBalancer(ctx *ZeroMqContext, endpoint TcpEndpoint) (*consistentHashingLoadBalancer, error) {
-	socket, err := createSocket(ctx, endpoint, zmq4.ROUTER)
-	if err != nil {
-		return nil, err
-	}
-
+func createConsistentHashingLoadBalancer(socket *ZeroMqRouterSocket) (*consistentHashingLoadBalancer, error) {
 	res := &consistentHashingLoadBalancer{
 		consumerQueues: createConsistentHashingQueues(),
-		socket:         socket,
+		socket:         socket.socket,
 	}
 
 	go res.startLoadBalancer()
@@ -159,7 +188,7 @@ func (b *consistentHashingLoadBalancer) startLoadBalancer() {
 			continue
 		}
 
-		waitingConsumers = b.sendMessagesToWaitingConsumers(waitingConsumers, consumersWithPendingMessages)
+		waitingConsumers = b.sendMessagesToConsumers(waitingConsumers, consumersWithPendingMessages)
 	}
 }
 
@@ -171,7 +200,7 @@ func (b *consistentHashingLoadBalancer) registerWaitingConsumer(waitingConsumers
 
 	sockets, err := poller.Poll(timeout)
 	if err != nil {
-		log.WithError(err).Warning("failed to poll consumer socket, retry")
+		log.WithError(err).Warning("failed to poll consumer socket")
 		return
 	}
 
@@ -190,7 +219,7 @@ func (b *consistentHashingLoadBalancer) registerWaitingConsumer(waitingConsumers
 	*waitingConsumers = append(*waitingConsumers, consumerId)
 }
 
-func (b *consistentHashingLoadBalancer) sendMessagesToWaitingConsumers(waitingConsumers []string, consumersWithPendingMessages map[string]bool) []string {
+func (b *consistentHashingLoadBalancer) sendMessagesToConsumers(waitingConsumers []string, consumersWithPendingMessages map[string]bool) []string {
 	newWaitingConsumers := make([]string, 0)
 	for _, consumerId := range waitingConsumers {
 		if _, ok := consumersWithPendingMessages[consumerId]; !ok {
@@ -208,61 +237,35 @@ func (b *consistentHashingLoadBalancer) sendMessagesToWaitingConsumers(waitingCo
 	return newWaitingConsumers
 }
 
-var (
-	jobsAlgorithm    = &consistentHashingAlgorithm{createConsistentHashingQueues()}
-	resultsAlgorithm = &roundRobinAlgorithm{}
-)
-
-func createZeroMqContext() (*ZeroMqContext, error) {
-	ctx, err := zmq4.NewContext()
-	if err != nil {
-		return nil, err
-	}
-	return &ZeroMqContext{ctx}, nil
+type WriterSocket interface {
+	writeMessage(message []byte) error
+	io.Closer
 }
 
-func (c *ZeroMqContext) Close() error {
-	return c.context.Term()
-}
-
-// TODO - refactor this api to create socket(with optional identity) with bind, connect, send, receive
 type ZeroMqPublisher struct {
-	socket      *zmq4.Socket
-	publishFunc func(socket *zmq4.Socket, messageId string, message []byte) error
-}
-
-func createZeroMqPublisher(context *ZeroMqContext, endpoint TcpEndpoint, algorithm publishConsumeAlgorithm) (*ZeroMqPublisher, error) {
-	socket, err := createSocket(context, endpoint, algorithm.publisherType())
-	if err != nil {
-		return nil, err
-	}
-	return &ZeroMqPublisher{socket: socket, publishFunc: algorithm.publish}, nil
+	socket WriterSocket
 }
 
 func (p *ZeroMqPublisher) Close() error {
 	return p.socket.Close()
 }
 
-func (p *ZeroMqPublisher) Publish(messageId string, message interface{}) error {
+func (p *ZeroMqPublisher) Publish(_ string, message interface{}) error {
 	data, err := json.Marshal(message)
 	if err != nil {
 		return err
 	}
 
-	return p.publishFunc(p.socket, messageId, data)
+	return p.socket.writeMessage(data)
+}
+
+type ReaderSocket interface {
+	readMessage() ([]byte, error)
+	io.Closer
 }
 
 type ZeroMqConsumer struct {
-	socket      *zmq4.Socket
-	consumeFunc func(socket *zmq4.Socket) ([]byte, error)
-}
-
-func createZeroMqConsumer(ctx *ZeroMqContext, endpoint TcpEndpoint, algorithm publishConsumeAlgorithm) (*ZeroMqConsumer, error) {
-	socket, err := createSocket(ctx, endpoint, algorithm.consumerType())
-	if err != nil {
-		return nil, err
-	}
-	return &ZeroMqConsumer{socket: socket, consumeFunc: algorithm.consume}, nil
+	socket ReaderSocket
 }
 
 func (c *ZeroMqConsumer) Close() error {
@@ -276,7 +279,7 @@ func (c *ZeroMqConsumer) Consume(ctx context.Context, messagePtr interface{}, on
 			return nil
 		}
 
-		data, err := c.consumeFunc(c.socket)
+		data, err := c.socket.readMessage()
 		if err != nil {
 			log.WithFields(log.Fields{
 				log.ErrorKey: err,
@@ -295,18 +298,4 @@ func (c *ZeroMqConsumer) Consume(ctx context.Context, messagePtr interface{}, on
 
 		onNewMessageCallback()
 	}
-}
-
-func createSocket(ctx *ZeroMqContext, endpoint TcpEndpoint, type_ zmq4.Type) (*zmq4.Socket, error) {
-	socket, err := ctx.context.NewSocket(type_)
-	if err != nil {
-		return nil, err
-	}
-
-	if endpoint.isServer {
-		err = socket.Bind(endpoint.String())
-	} else {
-		err = socket.Connect(endpoint.String())
-	}
-	return socket, err
 }
