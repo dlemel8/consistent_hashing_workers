@@ -69,7 +69,7 @@ func createZeroMqReqSocket(ctx *ZeroMqContext, identity string) (*ZeroMqReqSocke
 }
 
 func (s *ZeroMqReqSocket) readMessage() ([]byte, error) {
-	if _, err := s.socket.Send("", 0); err != nil { // TODO - replace to empty str?
+	if _, err := s.socket.Send("", 0); err != nil {
 		return nil, err
 	}
 	return s.socket.RecvBytes(0)
