@@ -12,7 +12,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v2
       - name: Start Dependencies
-        if: ${{ matrix.strategy }} == rabbitmq
+        if: matrix.strategy == 'rabbitmq'
         run: docker-compose -f docker-compose.yml -f docker-compose.rabbitmq.yml up -d rabbitmq
       - name: Run strategy ${{ matrix.strategy }}
         run: docker-compose -f docker-compose.yml -f docker-compose.${{ matrix.strategy }}.yml up --build publisher worker reporter
