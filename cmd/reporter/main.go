@@ -9,6 +9,7 @@ import (
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
+	"io/ioutil"
 	"strings"
 )
 
@@ -39,7 +40,7 @@ func (r *resultsReport) String() string {
 		fmt.Sprintf("Seen %d job ids", len(r.jobIdToProcessedBy)),
 		fmt.Sprintf("Seen %d job ids processed by more than one worker", r.processedByMoreThanOneWorker()),
 	}
-	return strings.Join(lines, "\n")
+	return strings.Join(lines, "\n") + "\n"
 }
 
 func (r *resultsReport) processedByMoreThanOneWorker() uint32 {
@@ -89,7 +90,9 @@ func main() {
 		if err != nil {
 			return err
 		}
-		fmt.Println(report)
+		if err := saveReport(report); err != nil {
+			return errors.Wrap(err, "failed to save reports")
+		}
 
 		log.Info("publishing terminate signal")
 		if err := terminate.Publish("", consistenthashing.TerminateSignal{}); err != nil {
@@ -98,6 +101,12 @@ func main() {
 
 		return nil
 	})
+}
+
+func saveReport(report *resultsReport) error {
+	reportPath := viper.GetString("report_path")
+	log.WithField("path", reportPath).Info("saving report")
+	return ioutil.WriteFile(reportPath, []byte(report.String()), 0644)
 }
 
 func processResults(base context.Context, results consistenthashing.Consumer) (*resultsReport, error) {

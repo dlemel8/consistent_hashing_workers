@@ -24,3 +24,6 @@ services:
         EXECUTABLE: reporter
     environment:
       NUMBER_OF_JOBS: 100000
+      REPORT_PATH: /tmp/report.txt
+    volumes:
+      - ./:/tmp/
