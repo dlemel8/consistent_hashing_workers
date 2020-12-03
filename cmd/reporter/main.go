@@ -75,22 +75,23 @@ func main() {
 			}
 		}()
 
-		report, err := processResults(cmd.Context(), results)
-		if err != nil {
-			return err
-		}
-		fmt.Println(report)
-
 		terminate, err := factory.CreateTerminatePublisher()
 		if err != nil {
 			return errors.Wrap(err, "failed to create terminate publisher")
 		}
 		defer func() {
 			if err := terminate.Close(); err != nil {
-				log.WithError(err).Error("failed to close results consumer")
+				log.WithError(err).Error("failed to close terminate consumer")
 			}
 		}()
 
+		report, err := processResults(cmd.Context(), results)
+		if err != nil {
+			return err
+		}
+		fmt.Println(report)
+
+		log.Info("publishing terminate signal")
 		if err := terminate.Publish("", consistenthashing.TerminateSignal{}); err != nil {
 			return errors.Wrap(err, "failed to publish terminate message")
 		}

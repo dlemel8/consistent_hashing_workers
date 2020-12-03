@@ -108,6 +108,44 @@ func (s *ZeroMqPushSocket) writeMessage(message []byte) error {
 	return err
 }
 
+type ZeroMqSubSocket struct {
+	*ZeroMqSocket
+}
+
+func createZeroMqSubSocket(ctx *ZeroMqContext, filter string) (*ZeroMqSubSocket, error) {
+	socket, err := ctx.context.NewSocket(zmq4.SUB)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := socket.SetSubscribe(filter); err != nil {
+		return nil, err
+	}
+
+	return &ZeroMqSubSocket{&ZeroMqSocket{socket: socket}}, nil
+}
+
+func (s *ZeroMqSubSocket) readMessage() ([]byte, error) {
+	return s.socket.RecvBytes(0)
+}
+
+type ZeroMqPubSocket struct {
+	*ZeroMqSocket
+}
+
+func createZeroMqPubSocket(ctx *ZeroMqContext) (*ZeroMqPubSocket, error) {
+	socket, err := ctx.context.NewSocket(zmq4.PUB)
+	if err != nil {
+		return nil, err
+	}
+	return &ZeroMqPubSocket{&ZeroMqSocket{socket: socket}}, nil
+}
+
+func (s *ZeroMqPubSocket) writeMessage(message []byte) error {
+	_, err := s.socket.SendBytes(message, 0)
+	return err
+}
+
 type ZeroMqRouterSocket struct {
 	*ZeroMqSocket
 }

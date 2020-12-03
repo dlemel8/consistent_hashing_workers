@@ -158,9 +158,30 @@ func (f *ZeroMqFactory) CreateResultsConsumer() (Consumer, error) {
 }
 
 func (f *ZeroMqFactory) CreateTerminatePublisher() (Publisher, error) {
-	panic("implement me")
+	socket, err := createZeroMqPubSocket(f.context)
+	if err != nil {
+		return nil, err
+	}
+
+	if err = socket.bind(uint16(viper.GetUint32("zeromq_terminate_endpoint_port"))); err != nil {
+		return nil, err
+	}
+
+	return &ZeroMqPublisher{socket: socket}, nil
 }
 
 func (f *ZeroMqFactory) CreateTerminateConsumer() (Consumer, error) {
-	panic("implement me")
+	socket, err := createZeroMqSubSocket(f.context, "")
+	if err != nil {
+		return nil, err
+	}
+
+	if err = socket.connect(TcpEndpoint{
+		Name: viper.GetString("zeromq_terminate_endpoint_name"),
+		port: uint16(viper.GetUint32("zeromq_terminate_endpoint_port")),
+	}); err != nil {
+		return nil, err
+	}
+
+	return &ZeroMqConsumer{socket: socket}, nil
 }
