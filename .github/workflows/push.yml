@@ -14,6 +14,9 @@ jobs:
       - name: Start Dependencies
         if: matrix.strategy == 'rabbitmq'
         run: docker-compose -f docker-compose.yml -f docker-compose.rabbitmq.yml up -d rabbitmq
+      - name: Use docker cache
+        uses: satackey/action-docker-layer-caching@v0.0.8
+          continue-on-error: true
       - name: Run strategy ${{ matrix.strategy }}
         run: docker-compose -f docker-compose.yml -f docker-compose.${{ matrix.strategy }}.yml up --build publisher worker reporter
       - name: Test
