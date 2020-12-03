@@ -1,0 +1,12 @@
+name: docker-compose-actions-workflow
+on: push
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+      - name: Run ZeroMQ strategy
+        run: docker-compose -f docker-compose.yml -f docker-compose.zeromq.yml up --build publisher worker reporter
+      - name: Test
+        run: diff report.txt expected_report.txt
