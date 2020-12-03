@@ -19,22 +19,46 @@ func main() {
 		if err != nil {
 			return errors.Wrap(err, "failed to create messaging factory")
 		}
-		defer factory.Close()
+		defer func() {
+			if err := factory.Close(); err != nil {
+				log.WithError(err).Error("failed to close factory")
+			}
+		}()
 
 		results, err := factory.CreateResultsPublisher()
 		if err != nil {
 			return errors.Wrap(err, "failed to create results publisher")
 		}
-		defer results.Close()
+		defer func() {
+			if err := results.Close(); err != nil {
+				log.WithError(err).Error("failed to close results publisher")
+			}
+		}()
 
 		consumerId := viper.GetString("hostname")
 		jobs, err := factory.CreateJobsConsumer(fmt.Sprintf("jobs_%s", consumerId))
 		if err != nil {
 			return errors.Wrap(err, "failed to create jobs consumer")
 		}
-		defer jobs.Close()
+		defer func() {
+			if err := jobs.Close(); err != nil {
+				log.WithError(err).Error("failed to close jobs consumer")
+			}
+		}()
 
-		return processJobs(cmd.Context(), consumerId, jobs, results)
+		terminate, err := factory.CreateTerminateConsumer()
+		if err != nil {
+			return errors.Wrap(err, "failed to create terminate consumer")
+		}
+		defer func() {
+			if err := terminate.Close(); err != nil {
+				log.WithError(err).Error("failed to close terminate consumer")
+			}
+		}()
+
+		// TODO - update consume api to return a channel to simplify this flow
+		go processJobs(cmd.Context(), consumerId, jobs, results)
+		return listenToTerminateSignal(cmd.Context(), terminate)
 	})
 }
 
@@ -58,4 +82,15 @@ func processJobs(
 		}
 	})
 	return errors.Wrap(err, "failed to consume jobs")
+}
+
+func listenToTerminateSignal(base context.Context, terminate consistenthashing.Consumer) error {
+	log.Info("start listening to terminate signal")
+
+	messagePtr := &consistenthashing.TerminateSignal{}
+	ctx, cancel := context.WithCancel(base)
+	return terminate.Consume(ctx, messagePtr, func() {
+		log.Info("got terminate signal")
+		cancel()
+	})
 }

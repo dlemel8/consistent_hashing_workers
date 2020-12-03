@@ -22,13 +22,21 @@ func main() {
 		if err != nil {
 			return errors.Wrap(err, "failed to create messaging factory")
 		}
-		defer factory.Close()
+		defer func() {
+			if err := factory.Close(); err != nil {
+				log.WithError(err).Error("failed to close factory")
+			}
+		}()
 
 		jobs, err := factory.CreateJobsPublisher()
 		if err != nil {
 			return errors.Wrap(err, "failed to create jobs publisher")
 		}
-		defer jobs.Close()
+		defer func() {
+			if err := jobs.Close(); err != nil {
+				log.WithError(err).Error("failed to close jobs publisher")
+			}
+		}()
 
 		waitForWorkers()
 

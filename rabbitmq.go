@@ -19,9 +19,13 @@ var (
 		Name: "jobs",
 		Type: "x-consistent-hash",
 	}
-	JobResultsExchange = Exchange{
-		Name: "job_results",
+	ResultsExchange = Exchange{
+		Name: "results",
 		Type: "topic",
+	}
+	TerminateExchange = Exchange{
+		Name: "terminate",
+		Type: "fanout",
 	}
 )
 
@@ -134,19 +138,20 @@ func createRabbitMqConsumer(
 		return nil, err
 	}
 
-	if _, err := channel.QueueDeclare(
+	queue, err := channel.QueueDeclare(
 		queueName,
 		false,
 		false,
 		true,
 		false,
 		nil,
-	); err != nil {
+	)
+	if err != nil {
 		return nil, err
 	}
 
 	if err := channel.QueueBind(
-		queueName,
+		queue.Name,
 		routingKey,
 		exchange.Name,
 		false,

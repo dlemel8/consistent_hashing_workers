@@ -59,19 +59,41 @@ func main() {
 		if err != nil {
 			return errors.Wrap(err, "failed to create messaging factory")
 		}
-		defer factory.Close()
+		defer func() {
+			if err := factory.Close(); err != nil {
+				log.WithError(err).Errorf("failed to close factory")
+			}
+		}()
 
-		results, err := factory.CreateResultsConsumer("results")
+		results, err := factory.CreateResultsConsumer()
 		if err != nil {
 			return errors.Wrap(err, "failed to create results consumer")
 		}
-		defer results.Close()
+		defer func() {
+			if err := results.Close(); err != nil {
+				log.WithError(err).Error("failed to close results consumer")
+			}
+		}()
 
 		report, err := processResults(cmd.Context(), results)
 		if err != nil {
 			return err
 		}
 		fmt.Println(report)
+
+		terminate, err := factory.CreateTerminatePublisher()
+		if err != nil {
+			return errors.Wrap(err, "failed to create terminate publisher")
+		}
+		defer func() {
+			if err := terminate.Close(); err != nil {
+				log.WithError(err).Error("failed to close results consumer")
+			}
+		}()
+
+		if err := terminate.Publish("", consistenthashing.TerminateSignal{}); err != nil {
+			return errors.Wrap(err, "failed to publish terminate message")
+		}
 
 		return nil
 	})

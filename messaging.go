@@ -29,7 +29,9 @@ type Factory interface {
 	CreateJobsPublisher() (Publisher, error)
 	CreateJobsConsumer(consumerId string) (Consumer, error)
 	CreateResultsPublisher() (Publisher, error)
-	CreateResultsConsumer(consumerId string) (Consumer, error)
+	CreateResultsConsumer() (Consumer, error)
+	CreateTerminatePublisher() (Publisher, error)
+	CreateTerminateConsumer() (Consumer, error)
 	io.Closer
 }
 
@@ -74,12 +76,19 @@ func (f *RabbitMqFactory) CreateJobsConsumer(consumerId string) (Consumer, error
 }
 
 func (f *RabbitMqFactory) CreateResultsPublisher() (Publisher, error) {
-	return createRabbitMqPublisher(f.connection, JobResultsExchange)
+	return createRabbitMqPublisher(f.connection, ResultsExchange)
 }
 
-func (f *RabbitMqFactory) CreateResultsConsumer(consumerId string) (Consumer, error) {
-	queueName := fmt.Sprintf("results_%s", consumerId)
-	return createRabbitMqConsumer(f.connection, JobResultsExchange, queueName, "#")
+func (f *RabbitMqFactory) CreateResultsConsumer() (Consumer, error) {
+	return createRabbitMqConsumer(f.connection, ResultsExchange, "results", "#")
+}
+
+func (f *RabbitMqFactory) CreateTerminatePublisher() (Publisher, error) {
+	return createRabbitMqPublisher(f.connection, TerminateExchange)
+}
+
+func (f *RabbitMqFactory) CreateTerminateConsumer() (Consumer, error) {
+	return createRabbitMqConsumer(f.connection, TerminateExchange, "", "")
 }
 
 type ZeroMqFactory struct {
@@ -135,7 +144,7 @@ func (f *ZeroMqFactory) CreateResultsPublisher() (Publisher, error) {
 	return &ZeroMqPublisher{socket: socket}, nil
 }
 
-func (f *ZeroMqFactory) CreateResultsConsumer(_ string) (Consumer, error) {
+func (f *ZeroMqFactory) CreateResultsConsumer() (Consumer, error) {
 	socket, err := createZeroMqPullSocket(f.context)
 	if err != nil {
 		return nil, err
@@ -146,4 +155,12 @@ func (f *ZeroMqFactory) CreateResultsConsumer(_ string) (Consumer, error) {
 	}
 
 	return &ZeroMqConsumer{socket: socket}, nil
+}
+
+func (f *ZeroMqFactory) CreateTerminatePublisher() (Publisher, error) {
+	panic("implement me")
+}
+
+func (f *ZeroMqFactory) CreateTerminateConsumer() (Consumer, error) {
+	panic("implement me")
 }
