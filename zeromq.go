@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"github.com/cenkalti/backoff/v4"
 	"github.com/pebbe/zmq4"
+	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 	"io"
 	"sync/atomic"
@@ -53,6 +54,28 @@ func (s *ZeroMqSocket) Close() error {
 	return s.socket.Close()
 }
 
+func readMessage(ctx context.Context, socket *zmq4.Socket) ([]byte, error) {
+	poller := zmq4.NewPoller()
+	poller.Add(socket, zmq4.POLLIN)
+
+	for {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+
+		sockets, err := poller.Poll(1 * time.Second)
+		if err != nil {
+			return nil, errors.Wrap(err, "failed to poll consumer socket")
+		}
+
+		if len(sockets) == 0 {
+			continue
+		}
+
+		return socket.RecvBytes(zmq4.DONTWAIT)
+	}
+}
+
 type ZeroMqReqSocket struct {
 	*ZeroMqSocket
 }
@@ -68,11 +91,11 @@ func createZeroMqReqSocket(ctx *ZeroMqContext, identity string) (*ZeroMqReqSocke
 	return &ZeroMqReqSocket{&ZeroMqSocket{socket: socket}}, nil
 }
 
-func (s *ZeroMqReqSocket) readMessage() ([]byte, error) {
-	if _, err := s.socket.Send("", 0); err != nil {
+func (s *ZeroMqReqSocket) readMessage(ctx context.Context) ([]byte, error) {
+	if _, err := s.socket.Send("", zmq4.DONTWAIT); err != nil {
 		return nil, err
 	}
-	return s.socket.RecvBytes(0)
+	return readMessage(ctx, s.socket)
 }
 
 type ZeroMqPullSocket struct {
@@ -87,8 +110,8 @@ func createZeroMqPullSocket(ctx *ZeroMqContext) (*ZeroMqPullSocket, error) {
 	return &ZeroMqPullSocket{&ZeroMqSocket{socket: socket}}, nil
 }
 
-func (s *ZeroMqPullSocket) readMessage() ([]byte, error) {
-	return s.socket.RecvBytes(0)
+func (s *ZeroMqPullSocket) readMessage(ctx context.Context) ([]byte, error) {
+	return readMessage(ctx, s.socket)
 }
 
 type ZeroMqPushSocket struct {
@@ -104,7 +127,7 @@ func createZeroMqPushSocket(ctx *ZeroMqContext) (*ZeroMqPushSocket, error) {
 }
 
 func (s *ZeroMqPushSocket) writeMessage(message []byte) error {
-	_, err := s.socket.SendBytes(message, 0)
+	_, err := s.socket.SendBytes(message, zmq4.DONTWAIT)
 	return err
 }
 
@@ -125,8 +148,8 @@ func createZeroMqSubSocket(ctx *ZeroMqContext, filter string) (*ZeroMqSubSocket,
 	return &ZeroMqSubSocket{&ZeroMqSocket{socket: socket}}, nil
 }
 
-func (s *ZeroMqSubSocket) readMessage() ([]byte, error) {
-	return s.socket.RecvBytes(0)
+func (s *ZeroMqSubSocket) readMessage(ctx context.Context) ([]byte, error) {
+	return readMessage(ctx, s.socket)
 }
 
 type ZeroMqPubSocket struct {
@@ -142,7 +165,7 @@ func createZeroMqPubSocket(ctx *ZeroMqContext) (*ZeroMqPubSocket, error) {
 }
 
 func (s *ZeroMqPubSocket) writeMessage(message []byte) error {
-	_, err := s.socket.SendBytes(message, 0)
+	_, err := s.socket.SendBytes(message, zmq4.DONTWAIT)
 	return err
 }
 
@@ -233,7 +256,7 @@ func (b *consistentHashingLoadBalancer) startLoadBalancer() {
 func (b *consistentHashingLoadBalancer) registerWaitingConsumer(waitingConsumers *[]string, poller *zmq4.Poller) {
 	timeout := time.Duration(-1)
 	if len(*waitingConsumers) > 0 {
-		timeout = time.Duration(1) * time.Second
+		timeout = 1 * time.Second
 	}
 
 	sockets, err := poller.Poll(timeout)
@@ -267,7 +290,7 @@ func (b *consistentHashingLoadBalancer) sendMessagesToConsumers(waitingConsumers
 
 		message := b.consumerQueues.popNodeMessage(consumerId)
 
-		if _, err := b.socket.SendMessage(consumerId, "", message); err != nil {
+		if _, err := b.socket.SendMessageDontwait(consumerId, "", message); err != nil {
 			log.WithError(err).Error("failed to send message")
 			newWaitingConsumers = append(newWaitingConsumers, consumerId)
 		}
@@ -298,7 +321,7 @@ func (p *ZeroMqPublisher) Publish(_ string, message interface{}) error {
 }
 
 type ReaderSocket interface {
-	readMessage() ([]byte, error)
+	readMessage(ctx context.Context) ([]byte, error)
 	io.Closer
 }
 
@@ -310,30 +333,20 @@ func (c *ZeroMqConsumer) Close() error {
 	return c.socket.Close()
 }
 
-func (c *ZeroMqConsumer) Consume(ctx context.Context, messagePtr interface{}, onNewMessageCallback func()) error {
+func (c *ZeroMqConsumer) Consume(ctx context.Context, messageObj interface{}, incomingMessages chan<- interface{}) error {
 	for {
-		if ctx.Err() != nil {
-			log.Info("consuming has canceled")
-			return nil
-		}
-
-		data, err := c.socket.readMessage()
+		data, err := c.socket.readMessage(ctx)
 		if err != nil {
-			log.WithFields(log.Fields{
-				log.ErrorKey: err,
-				"message":    data,
-			}).Error("failed to receive message")
-			continue
+			if ctx.Err() != nil {
+				return nil
+			}
+			return errors.Wrap(err, "failed to read message")
 		}
 
-		if err := json.Unmarshal(data, messagePtr); err != nil {
-			log.WithFields(log.Fields{
-				log.ErrorKey: err,
-				"message":    data,
-			}).Error("failed to handle message")
-			continue
+		if err := json.Unmarshal(data, messageObj); err != nil {
+			return errors.Wrapf(err, "failed to handle message %v", data)
 		}
 
-		onNewMessageCallback()
+		incomingMessages <- messageObj
 	}
 }

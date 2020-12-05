@@ -9,8 +9,10 @@ import (
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
+	"golang.org/x/sync/errgroup"
 	"io/ioutil"
 	"strings"
+	"time"
 )
 
 type resultsReport struct {
@@ -66,16 +68,6 @@ func main() {
 			}
 		}()
 
-		results, err := factory.CreateResultsConsumer()
-		if err != nil {
-			return errors.Wrap(err, "failed to create results consumer")
-		}
-		defer func() {
-			if err := results.Close(); err != nil {
-				log.WithError(err).Error("failed to close results consumer")
-			}
-		}()
-
 		terminate, err := factory.CreateTerminatePublisher()
 		if err != nil {
 			return errors.Wrap(err, "failed to create terminate publisher")
@@ -86,30 +78,51 @@ func main() {
 			}
 		}()
 
-		report, err := processResults(cmd.Context(), results)
-		if err != nil {
-			return err
-		}
-		if err := saveReport(report); err != nil {
-			return errors.Wrap(err, "failed to save reports")
-		}
+		baseCtx, cancel := context.WithTimeout(cmd.Context(), 5*time.Minute)
+		defer cancel()
+
+		resultsCh := make(chan interface{})
+		group, ctx := errgroup.WithContext(baseCtx)
+		group.Go(func() error {
+			return consumeResults(ctx, factory, resultsCh)
+		})
+		group.Go(func() error {
+			defer cancel()
+
+			report, err := processResults(ctx, resultsCh)
+			if err != nil {
+				return err
+			}
+
+			return saveReport(report)
+		})
+		res := group.Wait()
 
 		log.Info("publishing terminate signal")
 		if err := terminate.Publish("", consistenthashing.TerminateSignal{}); err != nil {
-			return errors.Wrap(err, "failed to publish terminate message")
+			log.WithError(err).Error("failed to publish terminate message")
 		}
 
-		return nil
+		return res
 	})
 }
 
-func saveReport(report *resultsReport) error {
-	reportPath := viper.GetString("report_path")
-	log.WithField("path", reportPath).Info("saving report")
-	return ioutil.WriteFile(reportPath, []byte(report.String()), 0644)
+func consumeResults(ctx context.Context, factory consistenthashing.Factory, resultsCh chan<- interface{}) error {
+	results, err := factory.CreateResultsConsumer()
+	if err != nil {
+		return errors.Wrap(err, "failed to create results consumer")
+	}
+
+	defer func() {
+		if err := results.Close(); err != nil {
+			log.WithError(err).Error("failed to close results consumer")
+		}
+	}()
+
+	return results.Consume(ctx, &consistenthashing.JobResult{}, resultsCh)
 }
 
-func processResults(base context.Context, results consistenthashing.Consumer) (*resultsReport, error) {
+func processResults(ctx context.Context, resultsCh <-chan interface{}) (*resultsReport, error) {
 	res := &resultsReport{
 		expectedResults:    viper.GetUint32("number_of_jobs"),
 		jobIdToProcessedBy: make(map[uint64]mapset.Set),
@@ -117,23 +130,34 @@ func processResults(base context.Context, results consistenthashing.Consumer) (*
 
 	log.WithField("numberOfJobs", res.expectedResults).Info("start consuming results")
 
-	messagePtr := &consistenthashing.JobResult{}
-	ctx, cancel := context.WithCancel(base)
-	err := results.Consume(ctx, messagePtr, func() {
-		res.processed(messagePtr.Id, messagePtr.ProcessedBy)
+	for {
+		select {
+		case <-ctx.Done():
+			return res, nil
 
-		if res.processedResults%1000 == 0 {
-			log.WithField("processed", res.processedResults).Info("status")
+		case resultObj := <-resultsCh:
+			result, ok := resultObj.(*consistenthashing.JobResult)
+			if !ok {
+				return nil, fmt.Errorf("enexpected message type %T", resultObj)
+			}
+			res.processed(result.Id, result.ProcessedBy)
+
+			if res.processedResults%1000 == 0 {
+				log.WithField("processed", res.processedResults).Info("status")
+			}
+
+			if res.doneProcessing() {
+				return res, nil
+			}
 		}
-
-		if res.doneProcessing() {
-			cancel()
-		}
-	})
-
-	if err != nil {
-		return nil, errors.Wrap(err, "failed to consume results")
 	}
+}
 
-	return res, nil
+func saveReport(report *resultsReport) error {
+	reportPath := viper.GetString("report_path")
+	log.WithField("path", reportPath).Info("saving report")
+	if err := ioutil.WriteFile(reportPath, []byte(report.String()), 0644); err != nil {
+		return errors.Wrap(err, "failed to save reports")
+	}
+	return nil
 }

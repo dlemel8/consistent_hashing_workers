@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"github.com/cenkalti/backoff/v4"
+	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 	"github.com/streadway/amqp"
 	"time"
@@ -167,7 +168,7 @@ func (c *RabbitMqConsumer) Close() error {
 	return c.channel.Close()
 }
 
-func (c *RabbitMqConsumer) Consume(ctx context.Context, messagePtr interface{}, onNewMessageCallback func()) error {
+func (c *RabbitMqConsumer) Consume(ctx context.Context, messageObj interface{}, incomingMessages chan<- interface{}) error {
 	deliveries, err := c.channel.Consume(
 		c.queueName,
 		"",
@@ -182,25 +183,20 @@ func (c *RabbitMqConsumer) Consume(ctx context.Context, messagePtr interface{}, 
 		return err
 	}
 
-	handleDeliveries(ctx, messagePtr, onNewMessageCallback, deliveries)
-	return nil
+	return handleDeliveries(ctx, messageObj, deliveries, incomingMessages)
 }
 
-func handleDeliveries(ctx context.Context, messagePtr interface{}, onNewMessageCallback func(), in <-chan amqp.Delivery) {
+func handleDeliveries(ctx context.Context, messageObj interface{}, in <-chan amqp.Delivery, out chan<- interface{}) error {
 	for {
 		select {
 		case delivery := <-in:
-			if err := json.Unmarshal(delivery.Body, messagePtr); err != nil {
-				log.WithFields(log.Fields{
-					log.ErrorKey: err,
-					"message":    delivery.Body,
-				}).Error("failed to handle message")
-				continue
+			if err := json.Unmarshal(delivery.Body, messageObj); err != nil {
+				return errors.Wrapf(err, "failed to handle message %v", delivery.Body)
 			}
-			onNewMessageCallback()
+			out <- messageObj
+
 		case <-ctx.Done():
-			log.Info("consuming has canceled")
-			return
+			return nil
 		}
 	}
 }
