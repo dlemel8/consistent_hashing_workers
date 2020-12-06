@@ -69,7 +69,9 @@ func consumeJobs(ctx context.Context, factory consistenthashing.Factory, consume
 			log.WithError(err).Error("failed to close jobs consumer")
 		}
 	}()
-	return jobs.Consume(ctx, &consistenthashing.ContinuesJob{}, messagesCh)
+	return jobs.Consume(ctx, messagesCh, func() interface{} {
+		return &consistenthashing.ContinuesJob{}
+	})
 }
 
 func consumeTerminateSignal(ctx context.Context, factory consistenthashing.Factory, terminateCh chan<- interface{}) error {
@@ -84,7 +86,9 @@ func consumeTerminateSignal(ctx context.Context, factory consistenthashing.Facto
 		}
 	}()
 
-	return terminate.Consume(ctx, &consistenthashing.TerminateSignal{}, terminateCh)
+	return terminate.Consume(ctx, terminateCh, func() interface{} {
+		return &consistenthashing.TerminateSignal{}
+	})
 }
 
 func processJobs(

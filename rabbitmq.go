@@ -168,7 +168,7 @@ func (c *RabbitMqConsumer) Close() error {
 	return c.channel.Close()
 }
 
-func (c *RabbitMqConsumer) Consume(ctx context.Context, messageObj interface{}, incomingMessages chan<- interface{}) error {
+func (c *RabbitMqConsumer) Consume(ctx context.Context, incomingMessages chan<- interface{}, newMessagePtr func() interface{}) error {
 	deliveries, err := c.channel.Consume(
 		c.queueName,
 		"",
@@ -183,17 +183,14 @@ func (c *RabbitMqConsumer) Consume(ctx context.Context, messageObj interface{}, 
 		return err
 	}
 
-	return handleDeliveries(ctx, messageObj, deliveries, incomingMessages)
-}
-
-func handleDeliveries(ctx context.Context, messageObj interface{}, in <-chan amqp.Delivery, out chan<- interface{}) error {
 	for {
 		select {
-		case delivery := <-in:
-			if err := json.Unmarshal(delivery.Body, messageObj); err != nil {
+		case delivery := <-deliveries:
+			messagePtr := newMessagePtr()
+			if err := json.Unmarshal(delivery.Body, messagePtr); err != nil {
 				return errors.Wrapf(err, "failed to handle message %v", delivery.Body)
 			}
-			out <- messageObj
+			incomingMessages <- messagePtr
 
 		case <-ctx.Done():
 			return nil

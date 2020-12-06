@@ -21,7 +21,7 @@ type Publisher interface {
 }
 
 type Consumer interface {
-	Consume(ctx context.Context, messageObj interface{}, incomingMessages chan<- interface{}) error
+	Consume(ctx context.Context, incomingMessages chan<- interface{}, newMessagePtr func() interface{}) error
 	io.Closer
 }
 

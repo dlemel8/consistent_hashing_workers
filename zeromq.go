@@ -333,7 +333,7 @@ func (c *ZeroMqConsumer) Close() error {
 	return c.socket.Close()
 }
 
-func (c *ZeroMqConsumer) Consume(ctx context.Context, messageObj interface{}, incomingMessages chan<- interface{}) error {
+func (c *ZeroMqConsumer) Consume(ctx context.Context, incomingMessages chan<- interface{}, newMessagePtr func() interface{}) error {
 	for {
 		data, err := c.socket.readMessage(ctx)
 		if err != nil {
@@ -343,10 +343,11 @@ func (c *ZeroMqConsumer) Consume(ctx context.Context, messageObj interface{}, in
 			return errors.Wrap(err, "failed to read message")
 		}
 
-		if err := json.Unmarshal(data, messageObj); err != nil {
+		messagePtr := newMessagePtr()
+		if err := json.Unmarshal(data, messagePtr); err != nil {
 			return errors.Wrapf(err, "failed to handle message %v", data)
 		}
 
-		incomingMessages <- messageObj
+		incomingMessages <- messagePtr
 	}
 }

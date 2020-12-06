@@ -119,7 +119,9 @@ func consumeResults(ctx context.Context, factory consistenthashing.Factory, resu
 		}
 	}()
 
-	return results.Consume(ctx, &consistenthashing.JobResult{}, resultsCh)
+	return results.Consume(ctx, resultsCh, func() interface{} {
+		return &consistenthashing.JobResult{}
+	})
 }
 
 func processResults(ctx context.Context, resultsCh <-chan interface{}) (*resultsReport, error) {
