@@ -1,7 +1,7 @@
 version: '2.4'
 
 services:
-  publisher:
+  generator:
     environment:
       MESSAGING_STRATEGY: RabbitMQ
       RABBITMQ_URL: amqp://test:test123@rabbitmq:5672/

@@ -26,16 +26,6 @@ func main() {
 			}
 		}()
 
-		results, err := factory.CreateResultsPublisher()
-		if err != nil {
-			return errors.Wrap(err, "failed to create results publisher")
-		}
-		defer func() {
-			if err := results.Close(); err != nil {
-				log.WithError(err).Error("failed to close results publisher")
-			}
-		}()
-
 		baseCtx, cancel := context.WithCancel(cmd.Context())
 		defer cancel()
 
@@ -52,13 +42,13 @@ func main() {
 		})
 		group.Go(func() error {
 			defer cancel()
-			return processJobs(ctx, consumerId, terminateCh, jobsCh, results)
+			return processJobs(ctx, factory, consumerId, terminateCh, jobsCh)
 		})
 		return group.Wait()
 	})
 }
 
-func consumeJobs(ctx context.Context, factory consistenthashing.Factory, consumerId string, messagesCh chan interface{}) error {
+func consumeJobs(ctx context.Context, factory consistenthashing.Factory, consumerId string, messagesCh chan<- interface{}) error {
 	jobs, err := factory.CreateJobsConsumer(fmt.Sprintf("jobs_%s", consumerId))
 	if err != nil {
 		return errors.Wrap(err, "failed to create jobs consumer")
@@ -93,12 +83,29 @@ func consumeTerminateSignal(ctx context.Context, factory consistenthashing.Facto
 
 func processJobs(
 	ctx context.Context,
+	factory consistenthashing.Factory,
 	consumerId string,
 	terminateCh <-chan interface{},
-	jobsCh <-chan interface{},
-	results consistenthashing.Publisher) error {
+	jobsCh <-chan interface{}) error {
 
-	log.WithField("consumerId", consumerId).Info("start consuming jobs")
+	results, err := factory.CreateResultsPublisher()
+	if err != nil {
+		return errors.Wrap(err, "failed to create results generator")
+	}
+	defer func() {
+		if err := results.Close(); err != nil {
+			log.WithError(err).Error("failed to close results generator")
+		}
+	}()
+
+	minJobProcessDuration := viper.GetDuration("min_job_process_duration").Milliseconds()
+	maxJobProcessDuration := viper.GetDuration("max_job_process_duration").Milliseconds()
+	log.WithFields(log.Fields{
+		"consumerId":            consumerId,
+		"minJobProcessDuration": minJobProcessDuration,
+		"maxJobProcessDuration": maxJobProcessDuration,
+	}).Info("start consuming jobs")
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -114,8 +121,7 @@ func processJobs(
 				return fmt.Errorf("enexpected job type %#v", jobObj)
 			}
 
-			// TODO - move to publisher and get from vyper
-			msToSleep := rand.Intn(10)
+			msToSleep := minJobProcessDuration + rand.Int63n(maxJobProcessDuration-minJobProcessDuration)
 			time.Sleep(time.Duration(msToSleep) * time.Millisecond)
 
 			result := &consistenthashing.JobResult{Id: job.Id, ProcessedBy: consumerId}

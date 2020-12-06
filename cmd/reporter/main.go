@@ -12,7 +12,6 @@ import (
 	"golang.org/x/sync/errgroup"
 	"io/ioutil"
 	"strings"
-	"time"
 )
 
 type resultsReport struct {
@@ -78,7 +77,8 @@ func main() {
 			}
 		}()
 
-		baseCtx, cancel := context.WithTimeout(cmd.Context(), 5*time.Minute)
+		jobsProcessingTimeoutDuration := viper.GetDuration("jobs_processing_timeout_duration")
+		baseCtx, cancel := context.WithTimeout(cmd.Context(), jobsProcessingTimeoutDuration)
 		defer cancel()
 
 		resultsCh := make(chan interface{})

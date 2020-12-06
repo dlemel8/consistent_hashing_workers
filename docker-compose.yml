@@ -1,20 +1,25 @@
 version: '2.4'
 
 services:
-  publisher:
+  generator:
     build:
       context: .
       args:
-        EXECUTABLE: publisher
+        EXECUTABLE: generator
     environment:
       NUMBER_OF_JOB_IDS: 1000
       NUMBER_OF_JOBS: 100000
+      MIN_JOB_DATA_SIZE: 1kb
+      MAX_JOB_DATA_SIZE: 20kb
 
   worker:
     build:
       context: .
       args:
         EXECUTABLE: worker
+    environment:
+      MIN_JOB_PROCESS_DURATION: 1ms
+      MAX_JOB_PROCESS_DURATION: 10ms
     scale: 6
 
   reporter:
@@ -24,6 +29,7 @@ services:
         EXECUTABLE: reporter
     environment:
       NUMBER_OF_JOBS: 100000
+      JOBS_PROCESSING_TIMEOUT_DURATION: 10m
       REPORT_PATH: /tmp/report.txt
     volumes:
       - ./:/tmp/

@@ -1,7 +1,8 @@
 package consistenthashing
 
 type ContinuesJob struct {
-	Id uint64
+	Id   uint64
+	Data []byte
 }
 
 type JobResult struct {

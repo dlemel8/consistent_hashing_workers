@@ -18,6 +18,6 @@ jobs:
         uses: satackey/action-docker-layer-caching@v0.0.8
         continue-on-error: true
       - name: Run strategy ${{ matrix.strategy }}
-        run: docker-compose -f docker-compose.yml -f docker-compose.${{ matrix.strategy }}.yml up --build publisher worker reporter
+        run: docker-compose -f docker-compose.yml -f docker-compose.${{ matrix.strategy }}.yml up --build generator worker reporter
       - name: Test
         run: diff report.txt expected_report.txt

@@ -60,7 +60,14 @@ func waitForWorkers() {
 
 func publishJobs(ctx context.Context, jobIds []uint64, jobs consistenthashing.Publisher) error {
 	numberOfJobs := viper.GetUint32("number_of_jobs")
-	log.WithField("numberOfJobs", numberOfJobs).Info("start publishing jobs")
+	minJobDataSize := int(viper.GetSizeInBytes("min_job_data_size"))
+	maxJobDataSize := int(viper.GetSizeInBytes("max_job_data_size"))
+
+	log.WithFields(log.Fields{
+		"numberOfJobs":   numberOfJobs,
+		"minJobDataSize": minJobDataSize,
+		"maxJobDataSize": maxJobDataSize,
+	}).Info("start publishing jobs")
 
 	for i := uint32(0); i < numberOfJobs; i++ {
 		if ctx.Err() != nil {
@@ -68,14 +75,30 @@ func publishJobs(ctx context.Context, jobIds []uint64, jobs consistenthashing.Pu
 			return nil
 		}
 
-		jobIdIndex := rand.Intn(len(jobIds))
-		jobId := jobIds[jobIdIndex]
-		job := consistenthashing.ContinuesJob{Id: jobId}
-		if err := jobs.Publish(fmt.Sprintf("%d", jobId), job); err != nil {
+		job, err := generateJob(jobIds, minJobDataSize, maxJobDataSize)
+		if err != nil {
+			return err
+		}
+
+		if err := jobs.Publish(fmt.Sprintf("%d", job.Id), job); err != nil {
 			return errors.Wrap(err, "failed to publish job")
 		}
 	}
 
 	log.Info("done publishing jobs")
 	return nil
+}
+
+func generateJob(jobIds []uint64, minJobDataSize int, maxJobDataSize int) (*consistenthashing.ContinuesJob, error) {
+	jobIdIndex := rand.Intn(len(jobIds))
+	jobId := jobIds[jobIdIndex]
+
+	dataSize := minJobDataSize + rand.Intn(maxJobDataSize-minJobDataSize)
+	data := make([]byte, 0, dataSize)
+
+	if _, err := rand.Read(data); err != nil {
+		return nil, errors.Wrap(err, "failed to generate job data")
+	}
+
+	return &consistenthashing.ContinuesJob{Id: jobId, Data: data}, nil
 }
