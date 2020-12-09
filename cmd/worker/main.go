@@ -106,16 +106,19 @@ func processJobs(
 		"maxJobProcessDuration": maxJobProcessDuration,
 	}).Info("start consuming jobs")
 
+	processedJobsCount := 0
 	for {
 		select {
 		case <-ctx.Done():
+			log.WithField("count", processedJobsCount).Info("done processed jobs")
 			return nil
 
 		case <-terminateCh:
-			log.Info("got terminate signal")
+			log.WithField("count", processedJobsCount).Info("got terminate signal, done processed jobs")
 			return nil
 
 		case jobObj := <-jobsCh:
+			processedJobsCount++
 			job, ok := jobObj.(*consistenthashing.ContinuesJob)
 			if !ok {
 				return fmt.Errorf("enexpected job type %#v", jobObj)

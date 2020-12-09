@@ -9,7 +9,7 @@ import (
 )
 
 const (
-	weightPerWorker          = 8
+	weightPerNode            = 50
 	nodesMaxIdleTimeDuration = 10 * time.Second
 	queueMaxSize             = 1000
 )
@@ -26,7 +26,7 @@ func (r *consistentHashingRing) addOrVerify(node string) {
 
 	if _, ok := r.nodeToLastSeen[node]; !ok {
 		log.WithField("node", node).Info("add to ring")
-		r.ring = r.ring.AddWeightedNode(node, weightPerWorker)
+		r.ring = r.ring.AddWeightedNode(node, weightPerNode)
 	}
 	r.nodeToLastSeen[node] = time.Now()
 

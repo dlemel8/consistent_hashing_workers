@@ -71,7 +71,7 @@ func (f *RabbitMqFactory) CreateJobsPublisher() (Publisher, error) {
 
 func (f *RabbitMqFactory) CreateJobsConsumer(consumerId string) (Consumer, error) {
 	queueName := fmt.Sprintf("jobs_%s", consumerId)
-	routingKey := fmt.Sprintf("%d", weightPerWorker)
+	routingKey := fmt.Sprintf("%d", weightPerNode)
 	return createRabbitMqConsumer(f.connection, JobsExchange, queueName, routingKey)
 }
 
