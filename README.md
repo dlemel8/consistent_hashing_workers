@@ -14,7 +14,7 @@ In steady state, requirements are:
 ![Abstract](design/abstract.jpg?raw=true "Abstract")
 
 ## Implementations
-### RabbitMQ (Central Message Broker)
+### RabbitMQ (Centralized Message Broker)
 ![RabbitMQ](design/rabbitmq.jpg?raw=true "RabbitMQ")
 
 ### ZeroMQ (Distributed Messaging Sockets)
